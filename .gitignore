@@ -1,0 +1,14 @@
+# Private runtime task data and local Obsidian settings
+/Todo Vault/
+/.todo-state/
+/.aws/
+/.codex/
+/.env
+/.env.*
+!.env.example
+node_modules/
+dist/
+coverage/
+app/out/
+app/.todo-state/
+*.log

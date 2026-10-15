@@ -1,0 +1,233 @@
+html,
+body,
+#root {
+  height: 100%;
+  min-width: 0;
+}
+body {
+  overflow: hidden;
+}
+.mini-app {
+  display: flex;
+  flex-direction: column;
+  height: 100dvh;
+  width: 100%;
+  max-width: 440px;
+  margin-inline: auto;
+  min-width: 0;
+  background: var(--canvas);
+  color: var(--ink);
+}
+.mini-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 18px 14px 18px 20px;
+  min-height: 89px;
+  border-bottom: 1px solid var(--line);
+  flex: none;
+}
+.mini-header h1 {
+  font-size: 24px;
+  line-height: 32px;
+  font-weight: 600;
+  letter-spacing: 0;
+}
+.mini-caption {
+  font-size: 12px;
+  line-height: 18px;
+  color: var(--muted);
+  margin-top: 2px;
+}
+.mini-actions {
+  display: flex;
+  flex: none;
+  gap: 0;
+}
+.mini-list {
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 0 20px 24px;
+  min-height: 0;
+  flex: 1;
+}
+.mini-group h2 {
+  font-size: 12px;
+  line-height: 18px;
+  font-weight: 600;
+  color: var(--muted);
+  margin: 14px 0 6px;
+}
+.mini-group.focus h2 {
+  color: var(--brand);
+}
+.mini-group.overdue h2,
+.mini-group.overdue .mini-task-meta {
+  color: var(--warning);
+}
+.mini-task {
+  display: flex;
+  align-items: center;
+  min-height: 60px;
+  border-bottom: 1px solid var(--line);
+  gap: 0;
+}
+.mini-check {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  min-width: 40px;
+  height: 44px;
+  margin-right: 0;
+  cursor: pointer;
+}
+.mini-check input {
+  appearance: none;
+  background: var(--surface);
+  border: 1px solid var(--control);
+  border-radius: 4px;
+  width: 17px;
+  height: 17px;
+  margin: 0;
+}
+.mini-task-open {
+  text-decoration: none;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  align-items: flex-start;
+  justify-content: center;
+  flex: 1;
+  min-width: 0;
+  min-height: 59px;
+  padding: 8px 0;
+  text-align: left;
+  border: 0;
+  background: transparent;
+  color: var(--ink);
+  font-size: 14px;
+  line-height: 20px;
+  cursor: pointer;
+}
+.mini-task-open:hover .mini-task-title {
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+.mini-task-title {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+}
+.mini-task-meta {
+  font-size: 12px;
+  line-height: 18px;
+  color: var(--muted);
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.mini-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  flex: none;
+  min-height: 56px;
+  padding: 0 14px 0 20px;
+  border-top: 1px solid var(--line);
+  color: var(--muted);
+  font-size: 12px;
+}
+.mini-notice {
+  display: flex;
+  align-items: center;
+  flex: none;
+  gap: 8px;
+  padding: 4px 8px 4px 20px;
+  border-top: 1px solid var(--line);
+  background: var(--tint);
+  font-size: 12px;
+  line-height: 18px;
+}
+.mini-notice > span {
+  flex: 1;
+  max-height: 72px;
+  overflow: auto;
+}
+.mini-notice > button:not(.icon-button) {
+  border: 0;
+  background: transparent;
+  color: var(--brand);
+  font: inherit;
+  font-weight: 600;
+  min-height: 44px;
+  min-width: 44px;
+  cursor: pointer;
+}
+.mini-notice .icon-button {
+  flex: none;
+}
+.mini-warning {
+  padding: 12px;
+  margin: 14px 0;
+  background: var(--warning-bg);
+  color: var(--warning);
+  font-size: 12px;
+  line-height: 18px;
+  border-radius: 8px;
+}
+.mini-warning strong {
+  display: block;
+  margin-bottom: 4px;
+}
+.mini-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 32px 4px;
+  font-size: 14px;
+  color: var(--muted);
+  line-height: 22px;
+}
+.mini-empty h2 {
+  font-size: 18px;
+  line-height: 26px;
+  color: var(--ink);
+}
+.mini-loading {
+  padding: 24px 0;
+  font-size: 14px;
+  color: var(--muted);
+}
+.mini-attention {
+  padding: 12px 0;
+  text-align: left;
+  font-size: 12px;
+  line-height: 18px;
+  color: var(--warning);
+  background: none;
+  border: 0;
+  cursor: pointer;
+}
+.mini-app button:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+[data-text="large"] .mini-task-open {
+  font-size: 16px;
+  line-height: 23px;
+}
+[data-text="large"] .mini-task {
+  min-height: 68px;
+}
+@media (prefers-reduced-motion: reduce) {
+  * {
+    scroll-behavior: auto !important;
+  }
+}

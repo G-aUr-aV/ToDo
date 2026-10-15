@@ -1,0 +1,23 @@
+{
+  "id": "/",
+  "name": "Todo — Daylight",
+  "short_name": "Todo",
+  "description": "Tasks in your Obsidian vault.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#fdfdfc",
+  "theme_color": "#226b53",
+  "icons": [
+    { "src": "/todo-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "/todo-512.png", "sizes": "512x512", "type": "image/png" }
+  ],
+  "shortcuts": [
+    {
+      "name": "Mini Today",
+      "short_name": "Mini Today",
+      "url": "/mini",
+      "icons": [{ "src": "/todo-192.png", "sizes": "192x192" }]
+    }
+  ]
+}

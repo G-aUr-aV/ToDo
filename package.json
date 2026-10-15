@@ -1,0 +1,24 @@
+{
+  "name": "todo-workspace",
+  "private": true,
+  "scripts": {
+    "dev": "npm --prefix app run dev --",
+    "build": "npm --prefix app run build",
+    "test": "npm --prefix app test",
+    "check": "npm --prefix app run check",
+    "start": "node app/scripts/start.mjs",
+    "setup": "node app/scripts/setup.mjs",
+    "launchers:install": "node launchers/install.mjs",
+    "test:launchers": "node --test launchers/tests/*.test.mjs",
+    "test:setup": "npm --prefix app run test:setup"
+  },
+  "description": "A lightweight, self-hosted task app backed by an Obsidian vault, with Mini Today and Chrome app launchers.",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/G-aUr-aV/ToDo.git"
+  },
+  "bugs": {
+    "url": "https://github.com/G-aUr-aV/ToDo/issues"
+  },
+  "license": "MIT"
+}

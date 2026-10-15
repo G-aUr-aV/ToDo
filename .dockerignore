@@ -1,0 +1,9 @@
+*
+!app/
+!app/**
+app/node_modules/
+app/dist/
+app/out/
+app/.todo-state/
+app/.env*
+app/tests/

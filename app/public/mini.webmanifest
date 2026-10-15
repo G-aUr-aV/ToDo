@@ -1,0 +1,15 @@
+{
+  "id": "/mini",
+  "name": "Todo Mini",
+  "short_name": "Todo Mini",
+  "description": "What's left today, within easy reach.",
+  "start_url": "/mini",
+  "scope": "/mini",
+  "display": "standalone",
+  "background_color": "#fdfdfc",
+  "theme_color": "#226b53",
+  "icons": [
+    { "src": "/todo-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "/todo-512.png", "sizes": "512x512", "type": "image/png" }
+  ]
+}

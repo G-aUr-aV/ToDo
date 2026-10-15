@@ -1,0 +1,33 @@
+services:
+  todo:
+    build: .
+    image: todo-daylight:0.1.0
+    user: "${TODO_UID:-1000}:${TODO_GID:-1000}"
+    init: true
+    ports:
+      - "127.0.0.1:${TODO_PORT:-4310}:3000"
+    environment:
+      HOST: 0.0.0.0
+      PORT: "3000"
+      VAULT_PATH: /vault
+      STATE_PATH: /state
+      PUBLIC_ORIGIN: "${TODO_PUBLIC_ORIGIN:-http://localhost:${TODO_PORT:-4310}}"
+    volumes:
+      - type: bind
+        source: ${TODO_VAULT_PATH:-./Todo Vault}
+        target: /vault
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ${TODO_STATE_PATH:-./.todo-state/server}
+        target: /state
+        bind:
+          create_host_path: false
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    restart: unless-stopped
