@@ -5,7 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { createPlan, findChrome, installPlan, parseOptions, validateOrigin, windowsScript } from '../install.mjs';
+import { createPlan, findChrome, installPlan, linuxWindowIdentity, parseOptions, validateOrigin, windowsScript } from '../install.mjs';
 import { npmInvocation, run } from '../../app/scripts/lifecycle.mjs';
 
 const script = fileURLToPath(new URL('../install.mjs', import.meta.url));
@@ -47,6 +47,27 @@ test('browser detection accepts an installed executable and fails before creatin
   await assert.rejects(findChrome(process.platform, { PATH: dir }, dir, path.join(dir, 'missing')), /not found/);
   await assert.rejects(findChrome(process.platform, { PATH: dir }, dir, dir), /not found/);
   assert.deepEqual(await fs.readdir(dir), []);
+});
+
+test('Linux identity matches Chromium native Wayland and X11 URL app identities', () => {
+  assert.equal(linuxWindowIdentity('http://localhost:4310/', 'Default', 'wayland'), 'chrome-localhost__-Default');
+  assert.equal(linuxWindowIdentity('http://localhost:4310/mini', 'Default', 'wayland'), 'chrome-localhost__mini-Default');
+  assert.equal(linuxWindowIdentity('https://todo.example/mini', 'Profile 1', 'wayland'), 'chrome-todo.example__mini-Profile_1');
+  assert.equal(linuxWindowIdentity('http://localhost:4310/', 'Default', 'x11'), 'localhost');
+  assert.equal(linuxWindowIdentity('http://localhost:4310/mini', 'Default', 'x11'), 'localhost__mini');
+});
+
+test('Wayland menu and desktop launchers map to the actual window ID and pin the same profile', () => {
+  const plan = createPlan({ platform: 'linux', home: '/home/user', chrome: '/usr/bin/google-chrome', origin: 'http://localhost:4310', env: { XDG_SESSION_TYPE: 'wayland' } });
+  for (const entry of plan.files.filter((file) => file.path.endsWith('.desktop'))) {
+    const mini = entry.path.includes('todo-mini');
+    const actual = mini ? 'chrome-localhost__mini-Default' : 'chrome-localhost__-Default';
+    assert.ok(entry.text.includes(`StartupWMClass=${actual}\n`));
+  }
+  for (const file of plan.files.filter((file) => !file.path.endsWith('.desktop'))) {
+    assert.ok(file.text.includes('--profile-directory=Default'));
+    assert.ok(!file.text.includes('--class='));
+  }
 });
 
 for (const platform of ['linux', 'darwin', 'win32']) {
@@ -129,7 +150,7 @@ test('POSIX launchers deliver exact arguments with spaces and shell metacharacte
       const args = (await fs.readFile(capture, 'utf8')).trim().split('\n');
       assert.ok(args.includes('--profile-directory=Profile 1'));
       assert.ok(args.includes('--app=http://localhost:4310/') || args.includes('--app=http://localhost:4310/mini'));
-      assert.equal(args.length, platform === 'linux' ? 4 : 3);
+      assert.equal(args.length, 3);
     }
   }
 });

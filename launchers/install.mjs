@@ -17,6 +17,12 @@ const desktopValue = (value) => value.replaceAll('\\', '\\\\').replaceAll('\n', 
 // Exec has both desktop-entry escaping and command argument escaping, but no shell.
 const desktopExec = (value) => '"' + value.replace(/[\\"`$]/g, (c) => '\\' + c).replaceAll('\\', '\\\\').replaceAll('%', '%%') + '"';
 
+function groupingNotice(platform) {
+  if (platform === 'darwin') return "These .app bundles are Chrome URL shortcuts; their windows can group under Chrome. For a separate Dock identity, install Todo and Mini with Chrome's menu > Cast, save, and share > Install page as app, then pin Chrome's generated apps.";
+  if (platform === 'win32') return "These .lnk files are Chrome URL shortcuts without Chrome's matching AppUserModelID; separate taskbar grouping/pinning is not guaranteed. For independent app identities, install Todo and Mini with Chrome's menu > Cast, save, and share > Install page as app, then pin Chrome's generated apps.";
+  return null;
+}
+
 export function parseOptions(argv) {
   const result = { platform: process.platform, desktop: true };
   const values = new Map([
@@ -87,6 +93,17 @@ function desktopFolder(platform, env, home) {
   return path.join(home, 'Desktop');
 }
 
+export function linuxWindowIdentity(url, profile = 'Default', sessionType = 'x11') {
+  // Chromium GenerateApplicationNameFromURL uses host + '_' + path, NOT --class.
+  // On native Wayland, GetXdgAppIdForWebApp includes the browser profile folder.
+  const parsed = new URL(url);
+  const safeName = (value) => value.replace(/[\x00-\x1f<>:"/\\|?*]/g, '_');
+  const appName = `${parsed.hostname}_${parsed.pathname}`;
+  const x11 = safeName(appName).replace(/^_+|_+$/g, '');
+  const wayland = safeName(`chrome-${appName}-${profile}`).replaceAll(' ', '_');
+  return sessionType === 'wayland' ? wayland : x11;
+}
+
 export function createPlan({ platform, origin, chrome, profile, home, env = {}, desktop = true, desktopDir, outputDir }) {
   const p = platform === 'win32' ? path.win32 : path.posix;
   const output = outputDir && p.resolve(outputDir);
@@ -98,13 +115,15 @@ export function createPlan({ platform, origin, chrome, profile, home, env = {}, 
   const shortcuts = [];
   const add = (file, text, mode = 0o644) => files.push({ path: file, text, mode });
   for (const app of apps) {
+    // Pin Linux to a known existing profile so its Wayland ID stays deterministic.
+    const selectedProfile = platform === 'linux' ? profile || 'Default' : profile;
     const args = [`--app=${origin}${app.route}`, `--window-size=${app.size}`];
-    if (profile) args.push(`--profile-directory=${profile}`);
-    if (platform === 'linux') args.push(`--class=${app.id}`);
+    if (selectedProfile) args.push(`--profile-directory=${selectedProfile}`);
     if (platform === 'linux') {
       const launcher = p.join(dataDir, app.id);
       add(launcher, `#!/bin/sh\nexec ${[chrome, ...args].map(shellQuote).join(' ')} "$@"\n`, 0o755);
-      const entry = `[Desktop Entry]\nType=Application\nVersion=1.0\nName=${app.name}\nComment=Open ${app.name} in a Chrome app window\nExec=${desktopExec(launcher)}\nIcon=${desktopValue(p.join(dataDir, 'todo.png'))}\nTerminal=false\nCategories=Office;\nStartupWMClass=${app.id}\n`;
+      const identity = linuxWindowIdentity(`${origin}${app.route}`, selectedProfile, env.XDG_SESSION_TYPE);
+      const entry = `[Desktop Entry]\nType=Application\nVersion=1.0\nName=${app.name}\nComment=Open ${app.name} in a Chrome app window\nExec=${desktopExec(launcher)}\nIcon=${desktopValue(p.join(dataDir, 'todo.png'))}\nTerminal=false\nCategories=Office;\nStartupWMClass=${identity}\n`;
       const menu = output ? p.join(output, 'applications') : p.join(env.XDG_DATA_HOME || p.join(home, '.local/share'), 'applications');
       add(p.join(menu, `${app.id}.desktop`), entry, 0o755);
       if (desktop) add(p.join(output ? p.join(output, 'Desktop') : desktopDir || p.join(home, 'Desktop'), `${app.id}.desktop`), entry, 0o755);
@@ -119,7 +138,7 @@ export function createPlan({ platform, origin, chrome, profile, home, env = {}, 
         desktop: desktop ? (output ? p.join(output, 'Desktop') : desktopDir || null) : false });
     }
   }
-  return { platform, origin, chrome, dataDir, files, shortcuts };
+  return { platform, origin, chrome, dataDir, files, shortcuts, groupingNotice: groupingNotice(platform) };
 }
 
 export function windowsScript(shortcuts) {
@@ -199,6 +218,7 @@ export async function main(argv = process.argv.slice(2)) {
     desktopDir: preview ? undefined : desktopFolder(options.platform, process.env, os.homedir()) });
   if (options.dryRun) { console.log(JSON.stringify(plan, null, 2)); return; }
   await installPlan(plan);
+  if (plan.groupingNotice) console.log(plan.groupingNotice);
   if (options.platform === 'linux') {
     const menu = path.dirname(plan.files.find((file) => file.path.endsWith('.desktop')).path);
     try { execFileSync('update-desktop-database', [menu], { stdio: 'ignore' }); } catch { /* Optional desktop cache. */ }

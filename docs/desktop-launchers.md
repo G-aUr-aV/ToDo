@@ -20,6 +20,19 @@ There are also platform entry points, run from the Todo root:
 
 The macOS app bundles contain only a shell launcher, metadata and an icon. Chrome owns the resulting window and Dock behavior. On Linux a desktop may require **right-click → Allow Launching**; the applications-menu entries work independently. Use **Keep in Dock** or **Pin to taskbar** through the OS if desired. No administrator access or startup service is required by these helpers.
 
+## macOS and Windows app identity
+
+For a separate Dock or taskbar identity on macOS/Windows, use Chrome's **menu → Cast, save, and share → Install page as app** for Todo and again for `/mini`, then pin the apps Chrome creates. The script helpers remain URL shortcuts and now explain this distinction during installation and in dry-run output.
+
+| Platform | Review finding | Supported setup for an independent app icon |
+| --- | --- | --- |
+| macOS | The shell `.app` executes Chrome directly; its bundle name/icon do not make Chrome's window belong to that bundle. This delivery path can group under Chrome. | Let Chrome create its app shim through browser installation. |
+| Windows | The generated `.lnk` has an icon and arguments but no matching `System.AppUserModel.ID`. Chrome computes its app-window ID from the URL and profile; grouping or pinning can therefore mismatch. This is a source-level risk, not a reproduced Windows failure. | Let Chrome create and maintain the matching app shortcut and window identity. |
+
+Neither platform was executed on this Ubuntu host. A plist check or COM shortcut readback does not establish live grouping. Do not invent an arbitrary AppUserModelID or modify the user's browser binary to force separation; the window and shortcut must agree. Existing wrappers can be removed after Chrome's installed apps work, without deleting website data or server state.
+
+Sources: [Chrome web-app installation](https://support.google.com/chrome/answer/9658361?co=GENIE.Platform%3DDesktop&hl=en), [Chromium macOS app shim](https://github.com/chromium/chromium/blob/main/chrome/app_shim/app_mode_loader_mac.mm), [Chromium Windows app IDs](https://chromium.googlesource.com/chromium/src/+/main/chrome/browser/shell_integration_win.cc), [Microsoft taskbar identity requirements](https://learn.microsoft.com/en-us/windows/win32/shell/appids).
+
 By default, installation uses `PUBLIC_ORIGIN` from the environment or root `.env`, falling back to `http://localhost:4310`. For a different server, pass its origin explicitly:
 
 ```sh
@@ -39,7 +52,17 @@ node launchers/install.mjs --chrome "/absolute/path/to/chrome"
 
 On Windows, `--chrome` is the full path to `chrome.exe`; on macOS it is the executable **inside** the Chrome application bundle. Detection checks normal Chrome locations, then Chromium. It stops if no browser is found. For Flatpak or other browser wrappers, install the site through that browser's menu instead of passing a launcher command as an executable path.
 
-Chrome's current/default profile is reused. To select another profile explicitly, use the **Profile Path** folder name shown at `chrome://version` (for example `Profile 1`). Todo and Mini share the login when they use the same origin and profile. The helper never edits browser preferences or creates a separate browser-data directory. Changing the server URL or selected profile requires rerunning installation; it does not move drafts, cookies or account data between origins/profiles.
+Linux explicitly uses Chrome's `Default` profile unless `--profile` selects another existing profile. This keeps the window's Dock identity consistent with its launcher. macOS and Windows reuse Chrome's current/default profile unless selected explicitly. To select another profile, use the **Profile Path** folder name shown at `chrome://version` (for example `Profile 1`). Todo and Mini share the login when they use the same origin and profile. The helper never edits browser preferences or creates a separate browser-data directory. Changing the server URL or selected profile requires rerunning installation; it does not move drafts, cookies or account data between origins/profiles.
+
+## Ubuntu Dock grouping
+
+The Linux installer matches `StartupWMClass` to Chrome's URL-derived window identity. Under native Wayland, localhost Todo uses `chrome-localhost__-Default` and Mini uses `chrome-localhost__mini-Default`; X11 uses `localhost` and `localhost__mini`. A custom profile changes the Wayland identity. These names follow Chromium's implementation, so standalone-window display mode alone is not sufficient verification.
+
+Installation uses `XDG_SESSION_TYPE` to select the identity. If Chrome was deliberately forced to X11 within a Wayland session, install with `XDG_SESSION_TYPE=x11 node launchers/install.mjs` instead. No browser restart, separate browser profile or display-server change is required.
+
+After updating the launchers, close the old Todo/Mini windows and reopen them from their own icons; GNOME may retain a cached association for windows already open. If an old pinned shortcut still retains the Chrome association, remove only that Todo pin and pin the newly opened Todo window. Keep other Chrome windows and pins intact. For other desktops or browser-managed installations, verify the reported window/app identity rather than assuming `--class` controls it.
+
+The 15 October 2026 Ubuntu ARM64 follow-up observed the full window's actual Wayland `set_app_id("chrome-localhost__-Default")` using a disposable browser profile. This exposed the initial mismatch with `StartupWMClass=todo-daylight`. Both corrected installed launchers were then executed using disposable browser data: the actual full/Mini app IDs matched their installed entries. All 12 launcher tests passed, including Wayland/X11 and custom-profile regressions; desktop entries and the updated setup skill validated. Final visual Dock acceptance remains separate because the browser automation connection was unavailable for this follow-up. See [Chromium's app-ID rules](https://chromium.googlesource.com/chromium/src/+/main/chrome/browser/shell_integration_linux.cc) and [GNOME's window matching](https://github.com/GNOME/gnome-shell/blob/main/src/shell-window-tracker.c).
 
 For isolated inspection, `--output-dir <directory>` puts all launcher artifacts under that directory. `--platform linux|darwin|win32` is allowed only with `--dry-run`; use it with an explicit target `--chrome` path to preview another OS. Real installation must run on the destination OS.
 

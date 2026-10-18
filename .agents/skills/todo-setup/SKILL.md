@@ -33,6 +33,12 @@ For a fresh local install, use `npm start` from the source root. This installs l
 
 `VAULT_PATH`/`STATE_PATH` for Node are relative to `app/`; private state stays outside the vault. Set both `PORT` and `PUBLIC_ORIGIN` for a custom port. Keep the generated initial login private: tell the user the local file path and let them sign in/change it. Do not read the password aloud or paste it. Obsidian's Open folder as vault can use the dedicated Todo Vault; do not modify another vault to finish setup.
 
+## Choose app installation for macOS/Windows grouping
+
+If the destination is macOS or Windows and the user expects a separate Dock/taskbar app, prefer Chrome's **menu → Cast, save, and share → Install page as app** for the full origin and `/mini`. This uses the existing browser while giving Chrome responsibility for the native app shim or matching window/shortcut identity. Use browser tools on the destination desktop, or report the manual step if that desktop is unavailable.
+
+The supplied macOS shell bundles execute Chrome and can group their windows under Chrome. The Windows `.lnk` helper lacks Chrome's matching `System.AppUserModel.ID`, so an icon alone does not guarantee grouping/pinning. Do not invent an unrelated app ID or claim native acceptance from static artifact checks. Use the script helpers when URL shortcuts meet the request; their installer/preview now reports this limitation. Preserve existing wrappers until browser-installed apps work, and do not delete browser data when removing duplicate launch icons. Read `docs/desktop-launchers.md` for the source-level platform review and limits.
+
 ## Install both shortcuts
 
 Run on the destination computer from the Todo root:
@@ -44,9 +50,9 @@ node launchers/install.mjs --url http://localhost:4310
 
 Replace the sample with the confirmed server origin. Without `--url`, the helper uses `PUBLIC_ORIGIN` from the environment/root `.env`, then localhost:4310. It writes only the user's launchers and their icon/support files; it does not start the server or install a browser. `npm run launchers:install -- --url <origin>` is equivalent.
 
-The helper detects common Chrome locations, then Chromium. Use `--chrome <absolute executable>` for a nonstandard install (the binary inside the `.app` on macOS, `chrome.exe` on Windows). `--profile "Profile 1"` chooses a known Chrome profile folder; otherwise reuse Chrome's default/current profile. Choose one profile for both windows so the origin's login is shared; do not create a separate `--user-data-dir`. Rerun with the same options to update shortcuts. Browser-managed Install page as app is also available, especially for sandboxed browser packages.
+The helper detects common Chrome locations, then Chromium. Use `--chrome <absolute executable>` for a nonstandard install (the binary inside the `.app` on macOS, `chrome.exe` on Windows). `--profile "Profile 1"` chooses a known Chrome profile folder. Linux explicitly selects `Default` when omitted, so its Wayland window ID is deterministic; if the user uses another existing profile, select it explicitly for both launchers. Other OS launchers reuse Chrome's current/default profile when omitted. Choose one profile for both windows so the origin's login is shared; do not create a separate `--user-data-dir`. Rerun with the same options to update shortcuts. Browser-managed Install page as app is also available, especially for sandboxed browser packages.
 
-- Linux: creates applications-menu and Desktop `.desktop` entries. Respect `$XDG_DATA_HOME` and the XDG desktop location. Some desktops need Allow Launching for Desktop icons. Do not manufacture a GUI in a headless session.
+- Linux: creates applications-menu and Desktop `.desktop` entries. Match `StartupWMClass` to the actual native Wayland app ID or X11 URL window class; `--class` and standalone display mode alone do not prove Dock grouping. The installer uses `XDG_SESSION_TYPE` and the selected profile; for a browser forced to X11 in a Wayland session, override installation with `XDG_SESSION_TYPE=x11`. Reopen old Todo/Mini windows after updating because GNOME can cache their association; re-pin only Todo if necessary. Respect `$XDG_DATA_HOME` and the XDG desktop location. Some desktops need Allow Launching for Desktop icons. Do not manufacture a GUI in a headless session.
 - macOS: creates `~/Applications/Todo.app` and `Todo Mini Today.app` with Desktop links. These bundles are shell wrappers, not native Todo runtimes. Use Terminal if Finder's environment cannot find Node. Chrome controls the resulting Dock window identity; pinning acceptance is a separate real-device check.
 - Windows: creates current-user Start menu and Desktop `.lnk` files using Windows PowerShell COM, including redirected Desktop folders. `node launchers/install.mjs` works without changing PowerShell script execution policy. `launchers/windows/install.ps1` is optional when policy permits.
 
@@ -54,7 +60,7 @@ The helper detects common Chrome locations, then Chromium. Use `--chrome <absolu
 
 ## Verify and report
 
-Check readiness and HTTP success for `/`, `/mini`, `/manifest.webmanifest` and `/mini.webmanifest` at the chosen origin. Open each actual generated launcher when a desktop is available and confirm separate full/Mini app windows at the expected origin. Verify shared sign-in only with an already authorized session; let the user enter credentials privately. Inspect artifact targets and icon paths; on Linux use `desktop-file-validate` if available. A file's existence alone does not prove app-window behavior.
+Check readiness and HTTP success for `/`, `/mini`, `/manifest.webmanifest` and `/mini.webmanifest` at the chosen origin. Open each actual generated launcher when a desktop is available and confirm separate full/Mini app windows at the expected origin, plus their own Dock/taskbar grouping. A correct icon on disk or standalone display mode alone does not establish grouping. Verify shared sign-in only with an already authorized session; let the user enter credentials privately. Inspect artifact targets and icon paths; on Linux use `desktop-file-validate` if available. A file's existence alone does not prove app-window behavior.
 
 Use `npm run test:launchers` when changing/repairing launcher code. If server code changes, follow the existing `npm run check` workflow with temporary invented vaults. On another OS, distinguish preview/static tests from native execution and actual browser acceptance. Do not claim CI passed just because a job was added.
 
