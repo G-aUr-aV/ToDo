@@ -12,6 +12,7 @@ Todo/
     Home.md
     Tasks.base             optional native task table views
     Tasks/                 one Markdown file per task
+    Days/                  generated day lists with links to task notes
     Projects/              project context notes
     Templates/Task.md      outside the app task scan
     Attachments/
@@ -84,3 +85,13 @@ Automatic rollover retains `original_scheduled`, `rollover_count` and `last_roll
 The initial workspace timezone is `Asia/Kolkata`, configurable in Settings. Calendar dates do not shift as UTC timestamps. Today includes open, non-trashed tasks planned for today or earlier, or due today or earlier. A future plan date does not hide an overdue deadline.
 
 Obsidian can edit the same files. A stale browser edit pauses autosave and retains its draft for Copy or explicit discard/reload. Obsidian does not share Todo's writer lock, so simultaneous external saves still have a narrow race. Back up both the full vault and private state; ZIP export contains indexed task/project notes only.
+
+## Day-by-day lists for people and agents
+
+Read `Days/README.md` for available dates, then `Days/YYYY-MM-DD.md` for a single day's tasks. Each entry links to the actual note in `Tasks/`. Open tasks have normal links; completed tasks have struck-through links. No task bodies are copied into these summaries.
+
+Open tasks appear on their `scheduled` date, falling back to `due` when no plan is set. Tasks with neither date appear in `Days/Unscheduled.md`. Completed tasks appear on the local calendar day of `completed_at` in the workspace timezone, regardless of their original plan. A completed note without a recorded timestamp also appears in Unscheduled, without inventing a completion day. Trashed tasks are excluded.
+
+Rescheduling or automatic rollover removes the open task from the earlier day's list and puts it on the new day. Completed tasks stay on their actual completion day; reopening, Undo and restore regenerate the lists from the current notes. A recurring task's completed occurrence and future occurrence have separate links on their respective days. Empty day pages are retained with no task entries.
+
+These are generated, read-only views, refreshed by the vault server after task edits, external note scans, rollover, timezone changes and restart. The server's existing watcher and 15-second reconciliation also handle midnight and edits made in Obsidian. While the server is stopped, lists reflect its last refresh. Edit the linked note or use Todo; editing a list does not edit the task. Unchanged lists are not rewritten. Unrecognized files and symlinks at generated paths are left alone and reported in vault status. Invalid task notes produce a warning that lists may be incomplete.

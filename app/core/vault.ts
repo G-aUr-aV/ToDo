@@ -13,6 +13,7 @@ import {
   shiftReminder,
 } from "./recurrence";
 import { checkItems, toggleCheck } from "./checklist";
+import { syncDailyLists } from "./daily-lists";
 import {
   AppError,
   defaultPreferences,
@@ -218,7 +219,7 @@ export class Vault extends EventEmitter {
     const pieces = relative.split(/[\\/]/);
     if (
       pieces.some((v) => v === ".." || v === "." || !v) ||
-      !["Tasks", "Projects"].includes(pieces[0])
+      !["Tasks", "Projects", "Days"].includes(pieces[0])
     )
       throw new AppError(
         400,
@@ -425,6 +426,32 @@ export class Vault extends EventEmitter {
           task.projectId = matching.length === 1 ? matching[0].id : null;
         }
       }
+    try {
+      this.assertWritable();
+      issues.push(
+        ...(await syncDailyLists(
+          {
+            tasks: [...records.values()]
+              .filter((r) => r.kind === "task")
+              .map((r) => r.entity as Task),
+            today: dayInZone(this.clock(), this.preferences.timezone),
+            timezone: this.preferences.timezone,
+            diagnostics: issues,
+          },
+          (relative) => this.safe(relative),
+          (file, raw) => this.atomic(file, raw),
+        )),
+      );
+    } catch {
+      issues.push({
+        id: hash("daily-lists"),
+        path: "Days",
+        message:
+          "Daily lists could not be updated. Check the Days folder and its permissions; task notes are still saved normally.",
+        adoptable: false,
+        revision: "",
+      });
+    }
     const signature = hash(
       JSON.stringify(
         [...records.values()].map((r) => [r.path, r.entity.revision]),
@@ -1019,6 +1046,7 @@ export class Vault extends EventEmitter {
         JSON.stringify(preferences, null, 2) + "\n",
       );
       this.preferences = preferences;
+      await this.scan();
       this.emit("changed");
       return preferences;
     });
@@ -1260,6 +1288,7 @@ export async function createVault(
   for (const name of [
     "Tasks",
     "Projects",
+    "Days",
     "Attachments",
     "Templates",
     ".obsidian",
@@ -1267,7 +1296,7 @@ export async function createVault(
     await fs.mkdir(path.join(root, name));
   await fs.writeFile(
     path.join(root, "Home.md"),
-    "# Todo Vault\n\nThis vault owns your Todo data. Tasks are ordinary Markdown notes in `Tasks/`; project context lives in `Projects/`. Open this folder in Obsidian or let your local assistant read these notes.\n\n## Reading progress\n\nEach task has YAML properties: `status` (`inbox`, `todo`, `doing`, `done`), `scheduled` (the planned work day), `due` (the deadline), `completed_at`, `tags`, and a project wiki link. The Markdown body holds notes and checklists. Completed and trashed tasks remain here for history; ignore `trashed: true` when reviewing active work. Keep each note's UUID `id` unchanged.\n\n## Planning and reminders\n\nUnfinished scheduled tasks roll forward to today in the workspace timezone by default. `original_scheduled`, `rollover_count`, and `last_rolled_at` explain the moves; deadlines are preserved. Turn this off in Todo settings if you prefer manual planning. `reminder_at` is an ISO timestamp with a timezone; browser reminders need Todo or Mini Today open.\n\n## Repeating tasks\n\nUse `repeat: { frequency: daily, interval: 1 }` (also `weekly` or `monthly`). Completing an occurrence retains its history and creates one future task, skipping missed occurrences. Month-end dates clamp to the last day and recover their original day in longer months. `recurrence_source_id` and `next_occurrence_id` link the history.\n\nYou can edit Markdown and custom YAML properties in Obsidian. Todo preserves unrelated properties, comments, and note content. Avoid editing the same note simultaneously in both apps; Todo pauses a stale save so you can keep your draft.\n",
+    "# Todo Vault\n\nThis vault owns your Todo data. Tasks are ordinary Markdown notes in `Tasks/`; project context lives in `Projects/`. Open this folder in Obsidian or let your local assistant read these notes.\n\n## Reading progress\n\nEach task has YAML properties: `status` (`inbox`, `todo`, `doing`, `done`), `scheduled` (the planned work day), `due` (the deadline), `completed_at`, `tags`, and a project wiki link. The Markdown body holds notes and checklists. Completed and trashed tasks remain here for history; ignore `trashed: true` when reviewing active work. Keep each note's UUID `id` unchanged.\n\n## Day-by-day task lists\n\nOpen [[Days/README|Day-by-day tasks]], or read `Days/YYYY-MM-DD.md` directly to review one day without scanning every task. Each entry links to its actual task note. Completed tasks are struck through on their completion day; open tasks use their planned date, or deadline if no plan is set. Rescheduling and rollover remove unfinished tasks from the earlier day. [[Days/Unscheduled|Unscheduled tasks]] holds notes without either date. Dates follow the workspace timezone. These lists refresh while Todo is running; edit linked task notes, not the generated lists.\n\n## Planning and reminders\n\nUnfinished scheduled tasks roll forward to today in the workspace timezone by default. `original_scheduled`, `rollover_count`, and `last_rolled_at` explain the moves; deadlines are preserved. Turn this off in Todo settings if you prefer manual planning. `reminder_at` is an ISO timestamp with a timezone; browser reminders need Todo or Mini Today open.\n\n## Repeating tasks\n\nUse `repeat: { frequency: daily, interval: 1 }` (also `weekly` or `monthly`). Completing an occurrence retains its history and creates one future task, skipping missed occurrences. Month-end dates clamp to the last day and recover their original day in longer months. `recurrence_source_id` and `next_occurrence_id` link the history.\n\nYou can edit Markdown and custom YAML properties in Obsidian. Todo preserves unrelated properties, comments, and note content. Avoid editing the same note simultaneously in both apps; Todo pauses a stale save so you can keep your draft.\n",
     { flag: "wx" },
   );
   await fs.writeFile(path.join(root, ".obsidian/app.json"), "{}\n", {

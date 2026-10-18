@@ -10,6 +10,8 @@ The owner expects Todo windows to group under Todo's own Ubuntu Dock icon, separ
 
 Keep tasks as readable Obsidian Markdown so the owner and local assistants can inspect progress directly. Automatic rollover must update unfinished planned dates in the vault, keep deadlines fixed and retain readable history. Provide simple reminders with snooze/dismiss and a clear open-page delivery requirement. Prefer bounded daily/weekly/monthly repeat rules and useful completion history over extra services, accounts or collaboration features. Verify both fresh setup and representative populated vaults using temporary invented data.
 
+The owner wants date-named day lists with links to actual task files: open tasks use normal links, completed tasks use strikethrough, and unfinished tasks moved to another day disappear from the old list. Keep these lists generated from authoritative task notes using the existing vault engine. Agents should read `Days/YYYY-MM-DD.md` for a day's work before opening individual task notes. No compatibility migration for the previous vault format is required.
+
 The owner does not want a conflict-resolution/merge workflow for this personal app. Keep the rare stale-edit case simple: pause saving, retain the draft, and offer Copy or an explicit discard-and-reload action. Keep revision checks and recovery/Undo so Obsidian edits are not silently overwritten. Do not reintroduce side-by-side comparisons, merge editors or reviewed-merge dialogs.
 
 Run the local server yourself and open the preview in the browser available to this environment. Do not give the user server-start instructions when you can run it.

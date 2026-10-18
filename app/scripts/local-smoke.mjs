@@ -87,6 +87,7 @@ try {
     assert.match(output, /Building Todo/);
   }
   assert.ok((await fs.stat(path.join(root, "Home.md"))).isFile());
+  assert.ok((await fs.stat(path.join(root, "Days/README.md"))).isFile());
   assert.equal((await fs.stat(path.join(state, "owner.json"))).mode & 0o777, 0o600);
   assert.equal((await request("/api/workspace")).status, 401);
   assert.equal((await request("/")).status, 200);
@@ -100,11 +101,16 @@ try {
   assert.equal(created.status, 200);
   assert.match(new TextDecoder().decode((await eventReader.read()).value), /event: changed/);
   const task = await created.json();
+  const plannedList = path.join(root, "Days/2030-10-20.md");
+  assert.ok((await fs.readFile(plannedList, "utf8")).includes(`- [Setup smoke task](../${task.path})`));
   assert.match(await fs.readFile(path.join(root, task.path), "utf8"), /Data stays in my vault/);
   const completed = await request(`/api/tasks/${task.id}`, "PATCH", { status: "done" }, task.revision);
   assert.equal(completed.status, 200);
   assert.equal((await completed.json()).status, "done");
   const afterComplete = await (await request("/api/workspace")).json();
+  const completionList = path.join(root, "Days", afterComplete.today + ".md");
+  assert.ok((await fs.readFile(completionList, "utf8")).includes(`- ~~[Setup smoke task](../${task.path})~~`));
+  assert.ok(!(await fs.readFile(plannedList, "utf8")).includes(task.path));
   const successors = afterComplete.tasks.filter((t) => t.recurrenceSourceId === task.id);
   assert.equal(successors.length, 1, "Packaged runtime must create one repeating successor");
   assert.match(successors[0].notes, /- \[ \] Data stays in my vault/);
@@ -119,10 +125,11 @@ try {
   await login();
   const snapshot = await (await request("/api/workspace")).json();
   assert.equal(snapshot.tasks.find((t) => t.id === task.id)?.status, "done");
+  assert.ok((await fs.readFile(completionList, "utf8")).includes(`- ~~[Setup smoke task](../${task.path})~~`));
   const versions = await (await request(`/api/tasks/${task.id}/versions`)).json();
   assert.ok(versions.length > 0);
   assert.ok(!output.includes("Created your task vault"), "Restart must preserve the existing vault");
-  console.log(`${cleanInstall ? "Clean-install and local" : "Local"} setup smoke passed: fresh vault, private login, HTTP writes, Markdown ownership, restart persistence, recovery, repeating checklist reset, live events, clean shutdown and session expiry.`);
+  console.log(`${cleanInstall ? "Clean-install and local" : "Local"} setup smoke passed: fresh vault, private login, HTTP writes, Markdown ownership, linked day lists, restart persistence, recovery, repeating checklist reset, live events, clean shutdown and session expiry.`);
 } finally {
   await stop().catch(() => { child?.kill("SIGKILL"); });
   await fs.rm(directory, { recursive: true, force: true });

@@ -16,7 +16,7 @@ test("first launch creates a complete dedicated vault once without replacing not
   const dir = await fixture(t);
   const root = path.join(dir, "nested", "My Tasks");
   assert.equal(await prepareVault(root), true);
-  for (const name of ["Tasks", "Projects", "Attachments", "Templates", ".obsidian"])
+  for (const name of ["Tasks", "Projects", "Days", "Attachments", "Templates", ".obsidian"])
     assert.ok((await fs.stat(path.join(root, name))).isDirectory());
   await fs.writeFile(path.join(root, "Home.md"), "# My own home note\n");
   await fs.writeFile(path.join(root, "Tasks", "personal.md"), "Keep my existing note\n");

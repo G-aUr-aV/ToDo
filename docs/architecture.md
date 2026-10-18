@@ -26,6 +26,8 @@ Tasks can store an explicit timezone-aware `reminder_at` and daily/weekly/monthl
 
 A local assistant can read the vault's status/date/completion fields, linked projects, checklist bodies and recurrence history directly. `Home.md` documents the format. Private account settings and recovery remain outside the vault; no LLM/provider integration is needed.
 
+The same scan generates `Days/YYYY-MM-DD.md` summaries with links to canonical task notes, plus a date index and an Unscheduled list. Open entries follow their current plan (or deadline when unplanned); completed entries are struck through on their completion day in the workspace timezone. Rollover and rescheduling remove the old entry. These rebuildable Markdown views share the existing vault engine and writer, and unchanged summaries are not rewritten. They hold no task bodies and are never read as task data.
+
 ## Simple editing
 
 Editing autosaves after 800 ms. Acknowledged writes report Saved to vault. Unsaved drafts stay in browser storage, namespaced by vault identity; failed storage warns that the draft is only in memory. Create request UUIDs avoid duplicates on retry.

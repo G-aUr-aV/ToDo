@@ -53,6 +53,8 @@ Tasks live in `Tasks/`; project context lives in `Projects/`. Task YAML includes
 
 Your assistant can read the vault directly to review plans, completed work and progress. No API key, LLM integration or proprietary database is needed. `Home.md` explains the format. Exclude `trashed: true` notes when reviewing active work, and preserve each note's UUID `id`.
 
+For a single day, open `Days/YYYY-MM-DD.md` instead of scanning every task. Todo maintains linked day lists with completed tasks struck through. Rescheduling and rollover move unfinished entries out of the old day. `Days/README.md` lists available days; `Days/Unscheduled.md` holds undated tasks. Lists refresh while the server runs; the linked task notes remain authoritative.
+
 Custom YAML properties, comments and Markdown bodies are preserved during metadata edits. Invalid or duplicate notes stay untouched and appear in vault status. Body checkboxes are subtasks; top-level completion uses `status`. Ordinary Obsidian edits are detected automatically.
 
 The app autosaves and retains unsaved drafts on the device. If an Obsidian edit changes the same note while you edit, saving pauses and offers **Copy draft** or **Discard draft & reload**. Revision checks, recoverable versions and exact Undo protect your notes without a merge workflow. Back up both vault and private state; recovery copies stay outside the vault. [Storage architecture](docs/architecture.md) and [vault format](docs/vault-format.md).

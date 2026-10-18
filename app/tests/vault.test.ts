@@ -277,7 +277,7 @@ test("archiving a project retains task links and date membership", async (t) => 
   const s = await vault.snapshot();
   assert.equal(s.tasks[0].projectId, project.id);
   assert.equal(s.projects[0].archived, true);
-  assert.equal(inToday(s.tasks[0], "2026-10-15"), true);
+  assert.equal(inToday(s.tasks[0], s.today), true);
   assert.match(task.project!, /^\[\[Projects\//);
 });
 test("planning changes never implicitly change deadlines", async (t) => {
