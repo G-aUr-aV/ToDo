@@ -18,6 +18,8 @@ Open http://localhost:4310. The generated initial login is written privately to 
 
 Open `Todo Vault/` in Obsidian. To let a local assistant review progress, give it read access to the vault. It can read Markdown without an API or AI provider connection. `Home.md` describes active/completed/trashed tasks, date fields, history and recurrence links.
 
+For personal task management from any project, install the portable `todo-tasks` skill and a short routing rule using the [Codex, Claude Code and Hermes setup guide](agent-skills.md). It also covers the separate `todo-setup` skill. A clone includes the skill sources; each machine supplies its own vault paths, global installation and agent permissions.
+
 ## Desktop shortcuts
 
 Once Chrome/Chromium is installed, `npm run launchers:install` creates separate Todo and Mini Today icons for the current OS. Use `-- --url https://your-server.example` when this computer connects to a remote server. The shortcuts reuse Chrome and do not start another vault server. See [platform commands, architecture guidance and agent setup](desktop-launchers.md).

@@ -53,6 +53,12 @@ Tasks live in `Tasks/`; project context lives in `Projects/`. Task YAML includes
 
 Your assistant can read the vault directly to review plans, completed work and progress. No API key, LLM integration or proprietary database is needed. `Home.md` explains the format. Exclude `trashed: true` notes when reviewing active work, and preserve each note's UUID `id`.
 
+The repository includes two portable Agent Skills: [todo-tasks](.agents/skills/todo-tasks/SKILL.md) for personal task management and [todo-setup](.agents/skills/todo-setup/SKILL.md) for the server and launchers. After cloning on another machine, ask your agent:
+
+> Read `docs/agent-skills.md` and set up Todo's skills for your agent on this machine, including global personal-task routing. Reuse my configured vault and preserve existing instructions.
+
+The [agent setup guide](docs/agent-skills.md) covers Codex, Claude Code, Hermes, and agents that read `SKILL.md` directly. Global installation and routing are local to each machine; cloning alone does not change them.
+
 For a single day, open `Days/YYYY-MM-DD.md` instead of scanning every task. Todo maintains linked day lists with completed tasks struck through. Rescheduling and rollover move unfinished entries out of the old day. `Days/README.md` lists available days; `Days/Unscheduled.md` holds undated tasks. Lists refresh while the server runs; the linked task notes remain authoritative.
 
 Custom YAML properties, comments and Markdown bodies are preserved during metadata edits. Invalid or duplicate notes stay untouched and appear in vault status. Body checkboxes are subtasks; top-level completion uses `status`. Ordinary Obsidian edits are detected automatically.

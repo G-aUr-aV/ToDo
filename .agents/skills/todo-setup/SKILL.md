@@ -7,6 +7,8 @@ description: Set up the Todo Daylight vault server and separate Todo or Mini Tod
 
 Todo is a web app with one Node/Fastify vault server. Desktop launchers open the user's installed Chrome/Chromium with `--app=URL`. Keep this architecture; do not add Electron, Tauri, a bundled browser or a second writer to an existing vault.
 
+For installing these skills across projects or setting up another agent's global Todo routing, read [the agent setup guide](../../../docs/agent-skills.md). This is separate from installing the Todo application itself.
+
 ## Locate the project and destination
 
 Find the Todo source root containing `launchers/install.mjs`, `app/package.json` and `docs/setup.md`. This skill normally lives at `<root>/.agents/skills/todo-setup`; resolve symlinks before walking three directories up. If copied independently, locate the user's checkout or ask for its path; there is no assumed public clone URL. Read `docs/desktop-launchers.md` and the relevant parts of `docs/setup.md` before changes.
