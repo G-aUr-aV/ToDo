@@ -9,7 +9,7 @@ import { promisify } from "node:util";
 import { setTimeout as delay } from "node:timers/promises";
 const exec = promisify(execFile);
 const workspace = path.resolve(import.meta.dirname, "../..");
-const temporary = await fs.mkdtemp(path.join(os.tmpdir(), "todo-compose-smoke-"));
+const temporary = await fs.mkdtemp(path.join(await fs.realpath(os.tmpdir()), "todo-compose-smoke-"));
 const checkout = path.join(temporary, "checkout");
 const project = "todo-setup-" + randomUUID().slice(0, 8);
 const port = process.env.TODO_COMPOSE_SMOKE_PORT ?? "4314";

@@ -8,7 +8,7 @@ import { Vault, createVault } from "../core/vault";
 import { parseNote, serialize, hash, freshNote } from "../core/notes";
 import { AppError, dayInZone, inToday, validDate } from "../core/model";
 async function fixture(t: test.TestContext) {
-  const dir = await fs.mkdtemp(path.join(os.tmpdir(), "todo-test-"));
+  const dir = await fs.mkdtemp(path.join(await fs.realpath(os.tmpdir()), "todo-test-"));
   const root = await createVault(path.join(dir, "Vault"));
   const vault = await new Vault(root, path.join(dir, "state")).start();
   t.after(async () => {

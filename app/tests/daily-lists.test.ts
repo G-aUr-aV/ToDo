@@ -8,7 +8,7 @@ import { Vault, createVault } from "../core/vault";
 import { parseNote, serialize } from "../core/notes";
 
 async function fixture(t: test.TestContext) {
-  const dir = await fs.mkdtemp(path.join(os.tmpdir(), "todo-days-"));
+  const dir = await fs.mkdtemp(path.join(await fs.realpath(os.tmpdir()), "todo-days-"));
   const root = await createVault(path.join(dir, "Vault"));
   let now = new Date("2026-10-18T18:20:00Z"); // 23:50 IST
   let vault = await new Vault(root, path.join(dir, "state"), () => now).start();

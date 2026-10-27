@@ -8,7 +8,7 @@ import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { setTimeout as delay } from "node:timers/promises";
 
-const directory = await fs.mkdtemp(path.join(os.tmpdir(), "todo-local-smoke-"));
+const directory = await fs.mkdtemp(path.join(await fs.realpath(os.tmpdir()), "todo-local-smoke-"));
 const cleanInstall = process.env.TODO_SMOKE_CLEAN_INSTALL === "1";
 let launcher = path.resolve(import.meta.dirname, "start.mjs");
 if (cleanInstall) {

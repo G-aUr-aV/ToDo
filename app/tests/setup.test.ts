@@ -7,7 +7,7 @@ import { prepareVault, runtimeConfig, validateStoragePaths } from "../server/run
 import { Auth } from "../server/auth";
 
 async function fixture(t: test.TestContext) {
-  const dir = await fs.mkdtemp(path.join(os.tmpdir(), "todo-setup-test-"));
+  const dir = await fs.mkdtemp(path.join(await fs.realpath(os.tmpdir()), "todo-setup-test-"));
   t.after(() => fs.rm(dir, { recursive: true, force: true }));
   return dir;
 }

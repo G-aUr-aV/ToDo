@@ -15,7 +15,7 @@ import { nextOccurrence, shiftReminder } from "../core/recurrence";
 import { todaySummary } from "../core/today";
 
 async function fixture(t: test.TestContext, initial = "2026-10-15T10:00:00Z") {
-  const dir = await fs.mkdtemp(path.join(os.tmpdir(), "todo-lifecycle-"));
+  const dir = await fs.mkdtemp(path.join(await fs.realpath(os.tmpdir()), "todo-lifecycle-"));
   const root = await createVault(path.join(dir, "Vault"));
   const state = path.join(dir, "state");
   let now = new Date(initial);

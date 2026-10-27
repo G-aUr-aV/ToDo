@@ -8,7 +8,7 @@ import { Vault, createVault } from "../core/vault";
 import { Auth } from "../server/auth";
 import { createServer } from "../server/app";
 async function fixture(t: test.TestContext, withClient = false) {
-  const dir = await fs.mkdtemp(path.join(os.tmpdir(), "todo-http-test-"));
+  const dir = await fs.mkdtemp(path.join(await fs.realpath(os.tmpdir()), "todo-http-test-"));
   const root = await createVault(path.join(dir, "Vault"));
   const vault = await new Vault(root, path.join(dir, "state")).start();
   const auth = new Auth(path.join(dir, "state"));

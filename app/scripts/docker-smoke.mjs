@@ -8,7 +8,7 @@ import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 const exec = promisify(execFile);
 const docker = (...args) => exec("docker", args, { maxBuffer: 2_000_000 });
-const dir = await fs.mkdtemp(path.join(os.tmpdir(), "todo-docker-smoke-"));
+const dir = await fs.mkdtemp(path.join(await fs.realpath(os.tmpdir()), "todo-docker-smoke-"));
 const vault = path.join(dir, "Vault");
 const state = path.join(dir, "state");
 await fs.mkdir(vault);
