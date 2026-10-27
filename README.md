@@ -14,6 +14,14 @@ With **Node 24.18 or newer in the Node 24 line**, run from this folder:
 npm start
 ```
 
+On macOS or Linux without a suitable Node, or to keep Todo off your global Node, use the project-local copy instead. It installs the version pinned in `.node-version` into gitignored `.tools/` and leaves global Node, nvm defaults and other projects unchanged:
+
+```sh
+scripts/local-node.sh npm start
+```
+
+Prefix any other `npm`/`node` command in this README the same way. Windows uses an installed Node 24.
+
 The first start installs locked dependencies, builds the app and creates `Todo Vault/` and private `.todo-state/server/` if needed. Later starts reuse the build unless sources changed. Open **http://localhost:4310**. The terminal gives the path to `initial-login.txt`; read it locally, sign in as `owner`, then change the generated password in **Settings → Vault & connection**. Passwords are never printed in the terminal.
 
 Open `Todo Vault/` through Obsidian's **Open folder as vault**. Keep the server running while using Todo. Stop it with Ctrl+C. Only one server should open a vault at once; browser windows all share that server.

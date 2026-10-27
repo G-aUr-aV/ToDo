@@ -10,6 +10,17 @@ Install Node 24 LTS, version 24.18 or later within Node 24. From the repository 
 npm start
 ```
 
+### Project-local Node (macOS/Linux)
+
+`scripts/local-node.sh` keeps Todo's Node inside this checkout. On first use it downloads the official build pinned in `.node-version` for the detected OS/CPU (native ARM64 on Apple silicon, even under Rosetta), checks it against Node's published SHA-256 sums and unpacks it into gitignored `.tools/`. It then runs the given command with that Node first on `PATH`; nothing else on the system changes.
+
+```sh
+scripts/local-node.sh install     # install or confirm the pinned Node
+scripts/local-node.sh npm start   # any npm/node command
+```
+
+To update, change `.node-version` and run `install`; older copies in `.tools/` are removed. Delete `.tools/` to remove it entirely. `.node-version` is also read by fnm, mise and nodenv if you prefer a version manager.
+
 The launcher installs the locked dependencies when absent, builds absent/outdated output, then serves Todo in the same Node process. Future starts do not keep a builder or launcher child running. An internet connection is needed for the first dependency installation. `npm run setup` explicitly repeats the clean install and build.
 
 A fresh start creates the complete `Todo Vault/` scaffold: Tasks, Projects, Attachments, Templates, Obsidian configuration, a Home guide and Tasks.base. An existing empty Docker mount is also initialized. An existing vault is retained; its note files and custom setup are never replaced.

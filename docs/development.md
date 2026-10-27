@@ -1,6 +1,6 @@
 # Development
 
-Use Node 24.18 or newer within the Node 24 line. Run commands from the repository root unless stated otherwise.
+Use Node 24.18 or newer within the Node 24 line. On macOS/Linux, `scripts/local-node.sh <command>` runs any command below with the project-local Node pinned in `.node-version` (see [setup](setup.md#project-local-node-macoslinux)). Run commands from the repository root unless stated otherwise.
 
 ## Source layout
 

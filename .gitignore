@@ -12,3 +12,4 @@ coverage/
 app/out/
 app/.todo-state/
 *.log
+/.tools/
