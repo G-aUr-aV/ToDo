@@ -9,7 +9,8 @@ import { z } from "zod";
 import { Vault } from "../core/vault";
 import { AppError } from "../core/model";
 import { operate, operations, errorData } from "../core/operations";
-import { Auth } from "./auth";
+import { Auth, WEEK } from "./auth";
+import { handleMcp } from "./mcp";
 import { routeFor } from "../core/protocol";
 export async function createServer({
   vault,
@@ -35,8 +36,11 @@ export async function createServer({
     reply.code(e.status).send({ error: e });
   });
   app.addHook("onRequest", async (req, reply) => {
-    if (req.url === "/healthz" || req.url === "/readyz") return;
-    if (req.url.startsWith("/api/")) reply.header("Cache-Control", "no-store");
+    // Decide on the matched route, never the raw URL: the router decodes
+    // percent-escapes, so "/%61pi/workspace" is the /api/workspace route.
+    const route = req.routeOptions.url ?? "";
+    if (route === "/healthz" || route === "/readyz") return;
+    if (route.startsWith("/api/")) reply.header("Cache-Control", "no-store");
     const host = req.headers.host ?? "";
     if (host !== origin.host)
       throw new AppError(
@@ -51,6 +55,26 @@ export async function createServer({
         "Content-Security-Policy",
         "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'self'; frame-ancestors 'none'; form-action 'self'",
       );
+    // Agents use a personal token instead of the browser cookie. A browser
+    // page from another site always sends Origin, so a foreign one is refused.
+    if (route === "/mcp") {
+      reply.header("Cache-Control", "no-store");
+      if (req.headers.origin && req.headers.origin !== origin.origin)
+        throw new AppError(
+          403,
+          "ORIGIN_INVALID",
+          "This request came from a different website.",
+        );
+      if (!auth.verifyToken(req.headers.authorization)) {
+        reply.header("WWW-Authenticate", 'Bearer realm="todo"');
+        throw new AppError(
+          401,
+          "TOKEN_INVALID",
+          "Connect with an agent token from Todo Settings.",
+        );
+      }
+      return;
+    }
     if (req.method !== "GET" && req.method !== "HEAD") {
       if (req.headers.origin !== origin.origin)
         throw new AppError(
@@ -62,9 +86,9 @@ export async function createServer({
         throw new AppError(415, "CONTENT_TYPE", "Send this action as JSON.");
     }
     if (
-      !req.url.startsWith("/api/") ||
-      req.url === "/api/session" ||
-      req.url === "/api/login"
+      !route.startsWith("/api/") ||
+      route === "/api/session" ||
+      route === "/api/login"
     )
       return;
     const session = auth.session(req.cookies.todo_session);
@@ -74,6 +98,9 @@ export async function createServer({
         "SESSION_EXPIRED",
         "Sign in to open your workspace.",
       );
+    // Sliding sign-in: renew the browser cookie along with the session.
+    if (route !== "/api/events" && route !== "/api/logout")
+      reply.setCookie("todo_session", session.id, cookieOptions);
     if (req.method !== "GET" && req.headers["x-todo-csrf"] !== session.csrf)
       throw new AppError(
         403,
@@ -86,10 +113,12 @@ export async function createServer({
     httpOnly: true,
     sameSite: "strict" as const,
     secure: origin.protocol === "https:",
-    maxAge: 86400,
+    maxAge: WEEK / 1000,
   };
-  app.get("/api/session", async (req) => {
+  app.get("/api/session", async (req, reply) => {
     const s = auth.session(req.cookies.todo_session);
+    // Sliding sign-in: each visit renews the browser cookie along with the session.
+    if (s) reply.setCookie("todo_session", s.id, cookieOptions);
     return {
       authenticated: !!s,
       csrf: s?.csrf ?? null,
@@ -136,6 +165,20 @@ export async function createServer({
     );
     return { ok: true };
   });
+  app.get("/api/tokens", async () => auth.listTokens());
+  app.post("/api/tokens", async (req) => {
+    const p = z
+      .object({ name: z.string().trim().max(60).default("Claude Code") })
+      .strict()
+      .parse(req.body ?? {});
+    const created = await auth.createToken(p.name);
+    return { ...created, endpoint: origin.origin + "/mcp" };
+  });
+  app.post("/api/tokens/:id/revoke", async (req) => {
+    const { id } = z.object({ id: z.string().uuid() }).parse(req.params);
+    await auth.revokeToken(id);
+    return { ok: true };
+  });
   for (const operation of operations) {
     const route = routeFor[operation];
     app.route({
@@ -165,6 +208,30 @@ export async function createServer({
       },
     });
   }
+  app.post(
+    "/mcp",
+    { config: { rateLimit: { max: 120, timeWindow: "1 minute" } } },
+    async (req, reply) => {
+      const response = await handleMcp(vault, req.body);
+      return response ? response : reply.code(202).send();
+    },
+  );
+  for (const method of ["GET", "DELETE"] as const)
+    app.route({
+      method,
+      url: "/mcp",
+      handler: async (_req, reply) =>
+        reply
+          .code(405)
+          .header("Allow", "POST")
+          .send({
+            error: {
+              status: 405,
+              code: "METHOD",
+              message: "This MCP endpoint accepts POST requests only.",
+            },
+          }),
+    });
   const streams = new Set<() => void>();
   app.get("/api/events", async (req, reply) => {
     reply.hijack();

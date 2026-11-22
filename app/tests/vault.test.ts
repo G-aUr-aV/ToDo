@@ -370,3 +370,39 @@ test("UUID letter case cannot hide a duplicate note identity", async (t) => {
     2,
   );
 });
+test("legacy start pages still open the vault and map to Tasks", async (t) => {
+  const dir = await fs.mkdtemp(path.join(await fs.realpath(os.tmpdir()), "todo-test-"));
+  t.after(() => fs.rm(dir, { recursive: true, force: true }));
+  const root = await createVault(path.join(dir, "Vault"));
+  await fs.mkdir(path.join(dir, "state"), { recursive: true });
+  await fs.writeFile(
+    path.join(dir, "state", "preferences.json"),
+    JSON.stringify({
+      timezone: "Asia/Kolkata",
+      weekStartsOn: 1,
+      startPage: "today",
+      obsidianVault: "",
+      autoRollover: true,
+    }),
+  );
+  const vault = await new Vault(root, path.join(dir, "state")).start();
+  try {
+    const s = await vault.snapshot();
+    assert.equal(s.preferences.startPage, "tasks");
+    assert.equal(s.preferences.issueLinkTemplate, "");
+  } finally {
+    await vault.close();
+  }
+});
+test("an issue link template must contain {key}", async (t) => {
+  const { vault } = await fixture(t);
+  const base = (await vault.snapshot()).preferences;
+  await assert.rejects(() =>
+    vault.setPreferences({ ...base, issueLinkTemplate: "https://x.test/browse" }),
+  );
+  const saved = await vault.setPreferences({
+    ...base,
+    issueLinkTemplate: "https://x.test/browse/{key}",
+  });
+  assert.equal(saved.issueLinkTemplate, "https://x.test/browse/{key}");
+});

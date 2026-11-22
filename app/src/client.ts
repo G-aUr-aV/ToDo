@@ -35,6 +35,16 @@ export async function call<T = unknown>(
   } else if (operation === "changePassword") {
     method = "POST";
     url = "/api/account/password";
+  } else if (operation === "listTokens") {
+    method = "GET";
+    url = "/api/tokens";
+  } else if (operation === "createToken") {
+    method = "POST";
+    url = "/api/tokens";
+  } else if (operation === "revokeToken") {
+    method = "POST";
+    url = `/api/tokens/${encodeURIComponent((payload as { id: string }).id)}/revoke`;
+    body = {};
   } else {
     const route = routeFor[operation as Operation];
     if (!route)
@@ -98,6 +108,9 @@ export async function call<T = unknown>(
       "versions",
       "exportNotes",
       "previewImport",
+      "listTokens",
+      "createToken",
+      "revokeToken",
     ].includes(operation)
   )
     changed();

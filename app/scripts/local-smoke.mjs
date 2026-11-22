@@ -121,15 +121,14 @@ try {
   await stop();
   while (!(await eventReader.read()).done) {}
   await start();
-  assert.equal((await request("/api/workspace")).status, 401);
-  await login();
+  assert.equal((await request("/api/workspace")).status, 200, "Sign-in must survive a restart");
   const snapshot = await (await request("/api/workspace")).json();
   assert.equal(snapshot.tasks.find((t) => t.id === task.id)?.status, "done");
   assert.ok((await fs.readFile(completionList, "utf8")).includes(`- ~~[Setup smoke task](../${task.path})~~`));
   const versions = await (await request(`/api/tasks/${task.id}/versions`)).json();
   assert.ok(versions.length > 0);
   assert.ok(!output.includes("Created your task vault"), "Restart must preserve the existing vault");
-  console.log(`${cleanInstall ? "Clean-install and local" : "Local"} setup smoke passed: fresh vault, private login, HTTP writes, Markdown ownership, linked day lists, restart persistence, recovery, repeating checklist reset, live events, clean shutdown and session expiry.`);
+  console.log(`${cleanInstall ? "Clean-install and local" : "Local"} setup smoke passed: fresh vault, private login, HTTP writes, Markdown ownership, linked day lists, restart persistence, recovery, repeating checklist reset, live events, clean shutdown and sign-in that survives a restart.`);
 } finally {
   await stop().catch(() => { child?.kill("SIGKILL"); });
   await fs.rm(directory, { recursive: true, force: true });

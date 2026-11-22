@@ -122,10 +122,13 @@ export type Diagnostic = {
 export type Preferences = {
   timezone: string;
   weekStartsOn: 0 | 1;
-  startPage: string;
+  startPage: "tasks" | "done";
   obsidianVault: string;
   autoRollover: boolean;
+  issueLinkTemplate: string;
 };
+// Earlier versions had separate Today/Inbox/Upcoming/All pages; they are all Tasks now.
+const legacyStartPages = ["today", "inbox", "upcoming", "all", "projects"];
 export const preferenceSchema = z
   .object({
     timezone: z.string().refine((v) => {
@@ -137,17 +140,30 @@ export const preferenceSchema = z
       }
     }, "Choose a valid timezone."),
     weekStartsOn: z.union([z.literal(0), z.literal(1)]),
-    startPage: z.enum(["today", "inbox", "upcoming", "all", "projects"]),
+    startPage: z.preprocess(
+      (v) => (legacyStartPages.includes(v as string) ? "tasks" : v),
+      z.enum(["tasks", "done"]),
+    ),
     obsidianVault: z.string().max(160),
     autoRollover: z.boolean().default(true),
+    issueLinkTemplate: z
+      .string()
+      .trim()
+      .max(300)
+      .refine(
+        (v) => v === "" || (/^https?:\/\//.test(v) && v.includes("{key}")),
+        "Use a web address that contains {key}, for example https://example.atlassian.net/browse/{key}.",
+      )
+      .default(""),
   })
   .strict();
 export const defaultPreferences: Preferences = {
   timezone: "Asia/Kolkata",
   weekStartsOn: 1,
-  startPage: "today",
+  startPage: "tasks",
   obsidianVault: "",
   autoRollover: true,
+  issueLinkTemplate: "",
 };
 export type Snapshot = {
   tasks: Task[];
@@ -176,4 +192,11 @@ export class AppError extends Error {
     super(message);
   }
 }
-export { active, inToday, byPriority, projectFor } from "./task-views";
+export {
+  active,
+  inToday,
+  inNow,
+  isLater,
+  byPriority,
+  projectFor,
+} from "./task-views";

@@ -41,6 +41,7 @@ async function fixture(t: test.TestContext, withClient = false) {
   });
   t.after(async () => {
     await app.close();
+    await auth.flush();
     await vault.close();
     await fs.rm(dir, { recursive: true, force: true });
   });
@@ -309,4 +310,67 @@ test("readiness becomes unavailable when task storage loses write access", async
   assert.equal(result.json().ready, false);
   assert.equal((await f.app.inject({ url: "/healthz", headers: f.headers })).statusCode, 200);
   await fs.chmod(directory, 0o700);
+});
+test("sign-in lasts a week and agent tokens are managed by the signed-in owner", async (t) => {
+  const f = await fixture(t);
+  const session = await f.app.inject({
+    url: "/api/session",
+    headers: { host: "localhost:4310", cookie: f.cookie },
+  });
+  assert.equal(session.cookies[0].maxAge, 604800);
+  const { "x-todo-csrf": _, ...noCsrf } = f.headers;
+  const denied = await f.app.inject({
+    method: "POST",
+    url: "/api/tokens",
+    headers: noCsrf,
+    payload: { name: "Claude Code" },
+  });
+  assert.equal(denied.statusCode, 403);
+  const created = await f.app.inject({
+    method: "POST",
+    url: "/api/tokens",
+    headers: f.headers,
+    payload: { name: "Claude Code" },
+  });
+  assert.equal(created.statusCode, 200);
+  assert.match(created.json().token, /^todo_pat_/);
+  assert.equal(created.json().endpoint, "http://localhost:4310/mcp");
+  const list = await f.app.inject({ url: "/api/tokens", headers: f.headers });
+  assert.deepEqual(
+    list.json().map((t: { name: string }) => t.name),
+    ["Claude Code"],
+  );
+  assert.doesNotMatch(list.body, /todo_pat_|sha256/);
+  const revoked = await f.app.inject({
+    method: "POST",
+    url: "/api/tokens/" + created.json().info.id + "/revoke",
+    headers: f.headers,
+    payload: {},
+  });
+  assert.equal(revoked.statusCode, 200);
+});
+test("percent-encoded paths cannot skip sign-in or token checks", async (t) => {
+  const f = await fixture(t);
+  const api = await f.app.inject({
+    url: "/%61pi/workspace",
+    headers: { host: "localhost:4310" },
+  });
+  assert.equal(api.statusCode, 401);
+  const mcp = await f.app.inject({
+    method: "POST",
+    url: "/%6dcp",
+    headers: {
+      host: "localhost:4310",
+      origin: "http://localhost:4310",
+      "content-type": "application/json",
+    },
+    payload: { jsonrpc: "2.0", id: 1, method: "tools/list" },
+  });
+  assert.equal(mcp.statusCode, 401);
+});
+test("every signed-in API response renews the week-long cookie", async (t) => {
+  const f = await fixture(t);
+  const res = await f.app.inject({ url: "/api/workspace", headers: f.headers });
+  assert.equal(res.statusCode, 200);
+  assert.equal(res.cookies.find((c) => c.name === "todo_session")?.maxAge, 604800);
 });

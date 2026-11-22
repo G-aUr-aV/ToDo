@@ -1,6 +1,8 @@
 # Todo's authenticated API
 
-Read this when making task changes programmatically. The normal UI uses these same routes; no separate agent token or task CLI exists in the current app. Use the existing server and an authorized session. Do not construct a second `Vault` instance against live data.
+Prefer the `todo` MCP tools. Todo serves them at `<PUBLIC_ORIGIN>/mcp` (Streamable HTTP, JSON responses) with an `Authorization: Bearer todo_pat_…` token the owner creates under **Settings → Connect an agent**. Settings shows the ready `claude mcp add` command. A password change revokes every token.
+
+Read the rest of this file only when MCP is unavailable and you write through a signed-in Todo browser tab. The UI uses these same routes. Do not construct a second `Vault` instance against live data.
 
 ## Connect without exposing secrets
 
@@ -8,14 +10,14 @@ Use the installation's confirmed `PUBLIC_ORIGIN`; the local default is `http://l
 
 In an authenticated browser page, same-origin requests use the HttpOnly `todo_session` cookie automatically. `GET /api/session` returns `{ authenticated, csrf, version }`; keep `csrf` in execution memory and use it as `X-Todo-CSRF` for writes. Include `Content-Type: application/json` and the configured Origin. Browsers supply Origin themselves. A direct HTTP client also needs its authorized cookie; keep it private, and never put it into a shell command or transcript. Do not extract browser-profile cookies or dump session responses. If no usable session exists, let the owner sign in privately in the UI; do not read `initial-login.txt` or change account credentials for task management.
 
-`GET /healthz` and `/readyz` are unauthenticated service probes, not proof of an authenticated task session. A restart expires sessions. A network/authentication limitation is not permission to hand-edit files, start a second writer or reset state.
+`GET /healthz` and `/readyz` are unauthenticated service probes, not proof of an authenticated task session. Sessions last 7 days from last use and survive restarts. A network/authentication limitation is not permission to hand-edit files, start a second writer or reset state.
 
 ## Read responses
 
 | Request | Response |
 | --- | --- |
 | `GET /api/workspace` | `{ tasks, projects, diagnostics, preferences, vaultName, vaultKey, now, today, version }` |
-| `GET /api/today` | Compact `{ today, count, needsAttention, groups, reminders, ... }`; groups contain active task IDs and revisions, but not full notes or completion history |
+| `GET /api/today` | Mini's compact `{ today, count, needsAttention, groups, reminders, ... }`: open tasks without a future plan date (plus due deadlines), grouped by project; no notes or completion history |
 | `GET /api/tasks/:id/versions` | Recovery versions `{ id, savedAt, title, notes }[]` for that task |
 
 There is no individual `GET /api/tasks/:id` route. Get a task by filtering `workspace.tasks` on its UUID. Tasks in a workspace include done and trashed records; apply the requested filters. Task objects expose `id`, `path`, `revision`, `notes`, `scheduled`, `due`, `status`, `projectId`, `completedAt`, `reminder`, `repeat`, `recurrenceSourceId` and `nextOccurrenceId`, among other metadata. Project objects include `id`, `path`, `revision` and `archived`. Read `diagnostics` before calling a listing complete or a recurring change fully successful.
@@ -60,7 +62,7 @@ Supported create/patch fields:
 | `title`, `status` | Nonempty title; status `inbox`, `todo`, `doing`, or `done` |
 | `scheduled`, `due` | `YYYY-MM-DD` or `null` to clear |
 | `projectId` | Existing non-archived project UUID, or `null` to unassign |
-| `focus`, `trashed` | Booleans |
+| `trashed` | Boolean. `focus` is still accepted but no longer shown or used for ordering |
 | `tags` | Complete string array, up to 30 entries, each 1–40 characters; preserve existing tags when adding one |
 | `notes` | Entire Markdown body, max 500,000 characters; preserve unaffected content |
 | `reminder` | ISO timestamp with seconds and explicit `Z` or `±HH:MM`, or `null` |

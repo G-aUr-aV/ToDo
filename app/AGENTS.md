@@ -1,6 +1,6 @@
 # Prototype Instructions
 
-Todo is a single-owner, self-hosted website with optional Chrome app windows on Linux, Mac and Windows. The owner explicitly removed native desktop delivery for simplicity and low resource use. Do not add Electron, Tauri, native installers, IPC bridges or local-folder onboarding. Keep the Daylight design and the Mini Today route. Reuse one vault engine and do not add another storage system or automatic offline writes.
+Todo is a single-owner, self-hosted website with optional Chrome app windows on Linux, Mac and Windows. The owner explicitly removed native desktop delivery for simplicity and low resource use. Do not add Electron, Tauri, native installers, IPC bridges or local-folder onboarding. Keep the Mini Today route and the design in `docs/superpowers/specs/2026-11-21-todo-revamp-design.md`: one Tasks list, a Done log, notes one click away. The owner wants few clicks, so show a control only when it is needed and prefer inline editing to dialogs. Agents write only through the `/mcp` endpoint or the signed-in API. Reuse one vault engine and do not add another storage system or automatic offline writes.
 
 Lightweight operation is a primary requirement: minimize download size, idle memory, idle CPU and maintenance cost. Measure the complete runtime rather than only JavaScript entry sizes. Browser installation reuses the browser; it does not mean zero memory use.
 

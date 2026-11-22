@@ -43,6 +43,7 @@ export default defineConfig({
     allowedHosts: ["terminal.local"],
     proxy: {
       "/api": { target: "http://127.0.0.1:4313", changeOrigin: false },
+      "/mcp": { target: "http://127.0.0.1:4313", changeOrigin: false },
       "/healthz": { target: "http://127.0.0.1:4313", changeOrigin: false },
     },
   },

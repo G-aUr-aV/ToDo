@@ -1,49 +1,50 @@
-import { useState, useEffect, useRef } from "react";
-import { Button, Icon, Modal } from "./components";
+import { useEffect, useRef, useState } from "react";
+import { Icon } from "./components";
+import { MenuItem } from "./Popover";
 const iso = (date: Date) => date.toISOString().slice(0, 10);
 const parse = (date: string) => new Date(date + "T12:00:00Z");
-const shift = (date: string, n: number) => {
+export const shiftDate = (date: string, n: number) => {
   const d = parse(date);
   d.setUTCDate(d.getUTCDate() + n);
   return iso(d);
 };
-export function DateControl({
+export function nextMonday(today: string) {
+  const day = parse(today).getUTCDay();
+  return shiftDate(today, ((8 - day) % 7) || 7);
+}
+const fmt = (date: string, options: Intl.DateTimeFormatOptions) =>
+  new Intl.DateTimeFormat("en-GB", { timeZone: "UTC", ...options }).format(
+    parse(date),
+  );
+/** "Today", "Tomorrow", "Mon 23 Nov" or "23 Nov 2027". */
+export function dateLabel(value: string, today: string) {
+  if (value === today) return "Today";
+  if (value === shiftDate(today, 1)) return "Tomorrow";
+  if (value === shiftDate(today, -1)) return "Yesterday";
+  const near = Math.abs(parse(value).getTime() - parse(today).getTime()) < 300 * 86400000;
+  return near
+    ? fmt(value, { weekday: "short", day: "numeric", month: "short" })
+    : fmt(value, { day: "numeric", month: "short", year: "numeric" });
+}
+
+/** Quick picks and a compact month calendar, shown inside a Popover. */
+export function DatePicker({
   value,
-  onChange,
   today,
   weekStartsOn = 1,
   kind = "plan",
-  disabled = false,
-  label,
+  onPick,
 }: {
   value: string | null;
-  onChange: (value: string | null) => void;
   today: string;
   weekStartsOn?: 0 | 1;
   kind?: "plan" | "deadline";
-  disabled?: boolean;
-  label?: string;
+  onPick: (value: string | null) => void;
 }) {
-  const [open, setOpen] = useState(false);
   const [month, setMonth] = useState((value ?? today).slice(0, 7));
   const [cursor, setCursor] = useState(value ?? today);
+  const [moved, setMoved] = useState(false);
   const grid = useRef<HTMLDivElement>(null);
-  const title = kind === "deadline" ? "Deadline" : "Plan for";
-  const text =
-    value === today
-      ? "Today"
-      : value === shift(today, 1)
-        ? "Tomorrow"
-        : value
-          ? new Intl.DateTimeFormat("en-GB", {
-              day: "numeric",
-              month: "short",
-              year: "numeric",
-              timeZone: "UTC",
-            }).format(parse(value))
-          : kind === "deadline"
-            ? "No deadline"
-            : "No date";
   const first = parse(month + "-01");
   const offset = (first.getUTCDay() - weekStartsOn + 7) % 7;
   const total = new Date(
@@ -56,161 +57,119 @@ export function DateControl({
         ? null
         : `${month}-${String(i - offset + 1).padStart(2, "0")}`,
   );
-  const names =
-    weekStartsOn === 1
-      ? ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
-      : ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
-  function select(value: string | null) {
-    onChange(value);
-    setOpen(false);
-  }
+  const names = (weekStartsOn === 1 ? "MTWTFSS" : "SMTWTFS").split("");
   function moveMonth(delta: number) {
     const d = parse(month + "-01");
     d.setUTCMonth(d.getUTCMonth() + delta);
     setMonth(iso(d).slice(0, 7));
     setCursor(iso(d));
+    setMoved(true);
   }
   useEffect(() => {
-    if (open)
+    if (moved)
       grid.current
         ?.querySelector<HTMLButtonElement>(`[data-date="${cursor}"]`)
         ?.focus();
-  }, [cursor, month, open]);
+  }, [cursor, month, moved]);
+  const picks: [string, string][] = [
+    ["Today", today],
+    ["Tomorrow", shiftDate(today, 1)],
+    ["Next Monday", nextMonday(today)],
+  ];
   return (
-    <>
-      <Button
-        kind="secondary"
-        type="button"
-        className="date-control"
-        aria-label={label ?? `${title}: ${text}`}
-        disabled={disabled}
-        onClick={() => {
-          setMonth((value ?? today).slice(0, 7));
-          setCursor(value ?? today);
-          setOpen(true);
-        }}
-      >
-        <span>{text}</span>
-        <Icon name="calendar-week" />
-      </Button>
-      {open && (
-        <Modal title={title} onClose={() => setOpen(false)}>
-          <div className="date-picker">
-            <p className="muted">
-              {kind === "deadline"
-                ? "When must this task be finished?"
-                : "Choose when you intend to work on this task."}
-            </p>
-            <div className="date-shortcuts">
-              <Button
-                kind={value === today ? "primary" : "secondary"}
-                onClick={() => select(today)}
-              >
-                Today
-              </Button>
-              <Button
-                kind={value === shift(today, 1) ? "primary" : "secondary"}
-                onClick={() => select(shift(today, 1))}
-              >
-                Tomorrow
-              </Button>
-            </div>
-            <div className="calendar-heading">
+    <div className="date-picker">
+      {picks.map(([name, date]) => (
+        <MenuItem
+          key={name}
+          icon="calendar-week"
+          hint={fmt(date, { weekday: "short" })}
+          active={value === date}
+          onSelect={() => onPick(date)}
+        >
+          {name}
+        </MenuItem>
+      ))}
+      <div className="calendar">
+        <div className="calendar-heading">
+          <button
+            type="button"
+            className="icon-button"
+            aria-label="Previous month"
+            onClick={() => moveMonth(-1)}
+          >
+            <Icon name="arrow-left" size={14} />
+          </button>
+          <strong>{fmt(month + "-01", { month: "long", year: "numeric" })}</strong>
+          <button
+            type="button"
+            className="icon-button"
+            aria-label="Next month"
+            onClick={() => moveMonth(1)}
+          >
+            <Icon name="arrow-right" size={14} />
+          </button>
+        </div>
+        <div className="calendar-weekdays" aria-hidden="true">
+          {names.map((n, i) => (
+            <span key={i}>{n}</span>
+          ))}
+        </div>
+        <div
+          ref={grid}
+          className="calendar-grid"
+          role="group"
+          aria-label="Choose a calendar date"
+        >
+          {days.map((day, i) =>
+            day ? (
               <button
-                className="icon-button"
-                aria-label="Previous month"
-                onClick={() => moveMonth(-1)}
-              >
-                <Icon name="arrow-left" />
-              </button>
-              <strong>
-                {new Intl.DateTimeFormat("en-GB", {
+                key={day}
+                type="button"
+                data-date={day}
+                tabIndex={cursor === day ? 0 : -1}
+                aria-pressed={value === day}
+                aria-label={fmt(day, {
+                  weekday: "long",
+                  day: "numeric",
                   month: "long",
                   year: "numeric",
-                  timeZone: "UTC",
-                }).format(first)}
-              </strong>
-              <button
-                className="icon-button"
-                aria-label="Next month"
-                onClick={() => moveMonth(1)}
+                })}
+                className={
+                  (day === value ? "selected " : "") +
+                  (day === today ? "today " : "") +
+                  (day < today ? "past" : "")
+                }
+                onClick={() => onPick(day)}
+                onKeyDown={(e) => {
+                  const step: Record<string, number> = {
+                    ArrowLeft: -1,
+                    ArrowRight: 1,
+                    ArrowUp: -7,
+                    ArrowDown: 7,
+                  };
+                  if (e.key in step) {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    const target = shiftDate(day, step[e.key]);
+                    setMonth(target.slice(0, 7));
+                    setCursor(target);
+                    setMoved(true);
+                  }
+                }}
               >
-                <Icon name="arrow-right" />
+                {parse(day).getUTCDate()}
               </button>
-            </div>
-            <div className="calendar-weekdays" aria-hidden="true">
-              {names.map((n) => (
-                <span key={n}>{n}</span>
-              ))}
-            </div>
-            <div
-              ref={grid}
-              className="calendar-grid"
-              role="group"
-              aria-label="Choose a calendar date"
-            >
-              {days.map((day, i) =>
-                day ? (
-                  <button
-                    key={day}
-                    type="button"
-                    data-date={day}
-                    tabIndex={cursor === day ? 0 : -1}
-                    aria-pressed={value === day}
-                    aria-label={new Intl.DateTimeFormat("en-GB", {
-                      weekday: "long",
-                      day: "numeric",
-                      month: "long",
-                      year: "numeric",
-                      timeZone: "UTC",
-                    }).format(parse(day))}
-                    className={day === value ? "selected" : ""}
-                    onClick={() => select(day)}
-                    onKeyDown={(e) => {
-                      let target: string | undefined;
-                      if (e.key === "ArrowLeft") target = shift(day, -1);
-                      if (e.key === "ArrowRight") target = shift(day, 1);
-                      if (e.key === "ArrowUp") target = shift(day, -7);
-                      if (e.key === "ArrowDown") target = shift(day, 7);
-                      if (e.key === "Home")
-                        target = shift(
-                          day,
-                          -((parse(day).getUTCDay() - weekStartsOn + 7) % 7),
-                        );
-                      if (e.key === "End")
-                        target = shift(
-                          day,
-                          6 - ((parse(day).getUTCDay() - weekStartsOn + 7) % 7),
-                        );
-                      if (e.key === "PageUp" || e.key === "PageDown") {
-                        e.preventDefault();
-                        moveMonth(e.key === "PageUp" ? -1 : 1);
-                      }
-                      if (target) {
-                        e.preventDefault();
-                        setMonth(target.slice(0, 7));
-                        setCursor(target);
-                      }
-                    }}
-                  >
-                    {parse(day).getUTCDate()}
-                  </button>
-                ) : (
-                  <span key={"empty" + i} />
-                ),
-              )}
-            </div>
-            <Button kind="ghost" onClick={() => select(null)}>
-              {kind === "deadline" ? "No deadline" : "No planned date"}
-            </Button>
-            <p className="date-helper">
-              {kind === "deadline"
-                ? "The planned date stays unchanged."
-                : "The deadline stays unchanged."}
-            </p>
-          </div>
-        </Modal>
+            ) : (
+              <span key={"empty" + i} />
+            ),
+          )}
+        </div>
+      </div>
+      {value && (
+        <MenuItem icon="x" onSelect={() => onPick(null)}>
+          {kind === "deadline" ? "Remove deadline" : "Remove date"}
+        </MenuItem>
       )}
-    </>
+    </div>
   );
 }

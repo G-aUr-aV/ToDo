@@ -273,7 +273,10 @@ export function MiniApp() {
           <section className={`mini-group ${group.key}`} key={group.key}>
             <h2>{group.label}</h2>
             {group.tasks.map((task) => (
-              <div className="mini-task" key={task.id}>
+              <div
+                className={"mini-task" + (pending === task.id ? " leaving" : "")}
+                key={task.id}
+              >
                 <label className="mini-check">
                   <input
                     type="checkbox"
@@ -289,30 +292,18 @@ export function MiniApp() {
                   href={fullHref(task.id)}
                 >
                   <span className="mini-task-title">{task.title}</span>
-                  <span className="mini-task-meta">
-                    {[
-                      task.project,
-                      task.due
-                        ? task.due < data.today
-                          ? `Deadline ${shortDate(task.due)}`
-                          : task.due === data.today
-                            ? "Due today"
-                            : task.due ===
-                                new Date(
-                                  Date.parse(data.today + "T12:00:00Z") +
-                                    86400000,
-                                )
-                                  .toISOString()
-                                  .slice(0, 10)
-                              ? "Due tomorrow"
-                              : `Due ${shortDate(task.due)}`
-                        : task.scheduled && task.scheduled < data.today
-                          ? `Planned ${shortDate(task.scheduled)}`
-                          : null,
-                    ]
-                      .filter(Boolean)
-                      .join(" · ") || "Today"}
-                  </span>
+                  {(() => {
+                    const meta = task.due
+                      ? task.due < data.today
+                        ? `Deadline ${shortDate(task.due)}`
+                        : task.due === data.today
+                          ? "Due today"
+                          : `Due ${shortDate(task.due)}`
+                      : task.scheduled && task.scheduled < data.today
+                        ? `Planned ${shortDate(task.scheduled)}`
+                        : "";
+                    return meta ? <span className="mini-task-meta">{meta}</span> : null;
+                  })()}
                 </a>
               </div>
             ))}
@@ -320,16 +311,12 @@ export function MiniApp() {
         ))}
         {data && data.count === 0 && !error && (
           <div className="mini-empty">
-            <Icon name="circle-check" size={32} tone="brand" />
-            <h2>
-              {data.needsAttention
-                ? "No indexed tasks for today."
-                : "Nothing left for today."}
-            </h2>
+            <Icon name="circle-check" size={28} tone="brand" />
+            <h2>{data.needsAttention ? "No readable tasks." : "All clear."}</h2>
             <p>
               {data.needsAttention
                 ? "Review the notes needing attention in the full app before relying on this list."
-                : "Your open tasks are all clear here. Enjoy a little breathing room."}
+                : "Nothing open right now."}
             </p>
             <a className="button ghost" href={fullHref()}>
               Open full app

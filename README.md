@@ -1,4 +1,4 @@
-# Todo — Daylight
+# Todo
 
 [![Validate Todo web app](https://github.com/G-aUr-aV/ToDo/actions/workflows/build.yml/badge.svg)](https://github.com/G-aUr-aV/ToDo/actions/workflows/build.yml)
 
@@ -38,12 +38,13 @@ Optional settings are documented in [.env.example](.env.example). Copy it to `.e
 
 ## Plan and finish work
 
-Today, Inbox, Upcoming, projects, labels, search, focus, Markdown notes/checklists, independent plan dates and deadlines, completion/Undo, Trash/restore, recovery, import/export, dark theme and responsive layouts are included.
+One Tasks list grouped by project, a Done log with outcomes, ⌘K search, Markdown notes/checklists, copy task name, clickable links and issue keys, independent plan dates and deadlines, completion/Undo, Trash/restore, recovery, import/export, dark theme, keyboard shortcuts and responsive layouts are included. Sign-in lasts a week from last use and survives restarts.
 
 - **Automatic rollover:** unfinished tasks planned before today move to today in your workspace timezone, including missed days while the server was stopped. Deadlines stay fixed. Markdown properties record the original plan and roll count. Disable it in Settings for manual planning.
 - **Reminders:** choose a date/time in the workspace timezone. Todo and Mini show due reminders with snooze/dismiss; enable browser notifications in Settings for system alerts. Keep either page open. Sleeping devices, suspended tabs and a stopped server can delay delivery; missed reminders appear on return. Closed-page push notifications are not provided.
 - **Repeating tasks:** daily, weekly or monthly, with a chosen interval. Completing an occurrence keeps its history and creates one future task. Missed occurrences are skipped; month-end dates keep their intended day. Undo handles the untouched generated occurrence safely.
-- **Mini Today:** http://localhost:4310/mini shows remaining tasks, overdue work and quick completion/Undo. It shares your vault, login and reminders with full Todo.
+- **Agents:** Claude Code or any MCP client can find, update and close tasks through `/mcp` with a token from **Settings → Connect an agent**. The [todo-tasks skill](.agents/skills/todo-tasks/SKILL.md) tells agents what to write in notes.
+- **Mini Today:** http://localhost:4310/mini shows the open Tasks list, overdue work and quick completion/Undo. It shares your vault, login and reminders with full Todo.
 
 To add separate **Todo** and **Todo Mini Today** desktop launchers on Linux, macOS or Windows, run:
 

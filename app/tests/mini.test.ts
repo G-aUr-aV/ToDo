@@ -29,7 +29,7 @@ const task = (id: string, patch: Partial<Task>): Task => ({
   nextOccurrenceId: null,
   ...patch,
 });
-test("mini summary uses Today rules, surfaces overdue work and excludes note content", () => {
+test("mini summary shows the Now list grouped by project, overdue first, without note content", () => {
   const s: Snapshot = {
     vaultKey: "v",
     vaultName: "Vault",
@@ -39,9 +39,10 @@ test("mini summary uses Today rules, surfaces overdue work and excludes note con
     preferences: {
       timezone: "Asia/Kolkata",
       weekStartsOn: 1,
-      startPage: "today",
+      startPage: "tasks",
       obsidianVault: "private device name",
       autoRollover: true,
+      issueLinkTemplate: "",
     },
     projects: [
       {
@@ -71,12 +72,21 @@ test("mini summary uses Today rules, surfaces overdue work and excludes note con
     ],
   };
   const result = todaySummary(s);
-  assert.equal(result.count, 3);
+  // Undated inbox work is part of Now; a future plan without a due deadline is not.
+  assert.equal(result.count, 4);
   assert.deepEqual(
     result.groups.map((g) => g.key),
-    ["overdue", "focus", "other"],
+    ["overdue", "project:work", "none"],
+  );
+  assert.deepEqual(
+    result.groups.map((g) => g.label),
+    ["Deadline passed", "Work", "No project"],
   );
   assert.equal(result.groups[1].tasks[0].project, "Work");
+  assert.deepEqual(
+    result.groups[2].tasks.map((t) => t.id),
+    ["carry", "inbox"],
+  );
   assert.doesNotMatch(
     JSON.stringify(result),
     /Private|private|notes|tags|Tasks\//,

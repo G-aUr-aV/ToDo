@@ -55,7 +55,11 @@ On Windows, an agent can use PowerShell `New-Item -ItemType SymbolicLink` with a
 
 Hermes additionally supports `skills.external_dirs` in its active `config.yaml`. If that is already the user's preferred approach, add this checkout's absolute `.agents/skills` path to the existing list without replacing other entries, instead of installing another copy. This exposes both skills across workspaces. For **repository-only** discovery, run `hermes skills trust /absolute/path/to/checkout` after reviewing the skill sources; that trust decision alone does not make them global. Preserve other Hermes configuration and trust settings.
 
-## 3. Add the global routing rule
+## 3. Connect the MCP endpoint
+
+Agents read and write tasks through Todo's MCP endpoint, `<server origin>/mcp`, with a personal token. Ask the owner to open **Settings → Connect an agent** in Todo and create a token; Settings shows it once with ready setups for Claude Code, Codex, Cursor and other MCP clients. For Claude Code it is `claude mcp add --scope user --transport http todo <origin>/mcp --header "Authorization: Bearer <token>"`. Other MCP clients use the same URL and header. Let the owner run or paste it: never ask for the token in chat, print it, or store it in a tracked file. A password change revokes all tokens.
+
+## 4. Add the global routing rule
 
 Skill discovery and global task routing serve different purposes. Install the skill, then add a short rule to the effective user-instruction file from the table. Back up the file first. Preserve existing sections, imports, persona and managed blocks; update an existing Todo routing section rather than appending duplicates. Keep this machine's paths in the user file, not in tracked repository documents.
 
@@ -65,20 +69,20 @@ Replace **every** uppercase placeholder below with confirmed values. `TASK_SKILL
 ## Personal tasks: Todo Vault
 
 - For my personal task requests from any project or chat (review pending work; add, plan, prioritize, schedule, update, complete or carry out tasks), read and follow the Todo Tasks skill at TASK_SKILL_FILE. Use this installation's live Todo Vault as the source of truth. Respect an explicitly named alternative source and distinguish personal tasks from steps in the current conversation.
-- Application checkout: APP_ROOT. Vault location: VAULT_LOCATION. Server origin: SERVER_ORIGIN. Read Home.md and relevant task/project notes when local access is available. Use the existing authenticated UI/API for writes, preserve UUIDs and unmentioned content, and verify results before claiming completion. Report inaccessible data or missing authentication instead of guessing or editing task files directly.
+- Application checkout: APP_ROOT. Vault location: VAULT_LOCATION. Server origin: SERVER_ORIGIN. Read Home.md and relevant task/project notes when local access is available. Use the `todo` MCP tools for writes (or the signed-in UI/API when they are missing), preserve UUIDs and unmentioned content, and verify results before claiming completion. Report inaccessible data or missing authentication instead of guessing or editing task files directly.
 - For Todo server or browser-launcher installation/repair, read SETUP_SKILL_FILE. Reuse the existing vault/server and detect the destination OS and CPU.
 ```
 
 For Hermes, preserve the active `SOUL.md` personality and add only this short workflow section. Its project `AGENTS.md`/`HERMES.md` files are not instance-wide routing files. Follow any permission requirement enforced by Hermes when editing its identity file. For a different agent, verify that its chosen user instruction file loads outside this repository before claiming global setup.
 
-## 4. Verify before reporting success
+## 5. Verify before reporting success
 
 Start a fresh session for the chosen agent, with its usual profile, **outside this checkout**. Verify each layer separately:
 
 1. Confirm each installed skill resolves to the intended `SKILL.md` and supporting files. Use the agent's skill list/selector where available. In Codex select `$todo-tasks`; in Claude Code or Hermes try `/todo-tasks`. Read-only discovery checks are enough; do not create a test task in the real vault.
 2. Ask: “Which task source and skill would you use if I ask to add a personal task? Do not add one.” It should identify the configured Todo installation and the task skill without relying on project-local instructions.
 3. Ask: “Which skill would you use to repair Todo's desktop launcher?” It should select `todo-setup`. Ordinary app-development requests should not be routed to the personal task list.
-4. Verify read access with `Home.md`/a requested listing, or the authenticated server API, within the owner's authorization. Missing sign-in or remote filesystem access can block operations even when discovery and routing work. Test actual write mechanics only on invented temporary vaults.
+4. Verify read access with `Home.md`/a requested listing, or a read-only `todo` MCP call such as `list_projects`, within the owner's authorization. Missing sign-in or remote filesystem access can block operations even when discovery and routing work. Test actual write mechanics only on invented temporary vaults.
 
 Report the agent/profile, installed skill paths, global routing file, confirmed vault/origin, checks run and any remaining access limitation. Distinguish source review, skill discovery, routing checks and actual task operations. Another agent's successful setup does not prove this one's behavior.
 

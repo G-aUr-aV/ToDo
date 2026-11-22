@@ -9,23 +9,24 @@ import {
   type ButtonHTMLAttributes,
 } from "react";
 import { createPortal } from "react-dom";
+import { icons } from "./icons";
 export function Icon({
   name,
-  size = 20,
-  tone = "muted",
+  size = 16,
+  tone = "",
 }: {
   name: string;
   size?: number;
   tone?: string;
 }) {
   return (
-    <img
+    <svg
       className={"icon " + tone}
-      src={`${import.meta.env.BASE_URL}icons/${name}.svg`}
+      viewBox="0 0 24 24"
       width={size}
       height={size}
-      alt=""
       aria-hidden="true"
+      dangerouslySetInnerHTML={{ __html: icons[name] ?? icons.circle }}
     />
   );
 }
@@ -40,13 +41,8 @@ export function Button({
 }) {
   return (
     <button {...props} className={`button ${kind} ${props.className ?? ""}`}>
-      {icon && (
-        <Icon
-          name={icon}
-          tone={kind === "primary" || kind === "danger" ? "white" : "brand"}
-        />
-      )}
-      <span>{children}</span>
+      {icon && <Icon name={icon} />}
+      {children}
     </button>
   );
 }
@@ -67,6 +63,7 @@ export function Banner({
       <Icon
         name={kind === "success" ? "circle-check" : "alert-triangle"}
         tone={kind === "success" ? "brand" : kind}
+        size={16}
       />
       <div>
         <strong>{title}</strong>
@@ -75,10 +72,20 @@ export function Banner({
     </div>
   );
 }
+// A quiet line drawing that draws itself in: a sun resting over a horizon.
+function EmptyArt() {
+  return (
+    <svg className="art icon" viewBox="0 0 132 96" aria-hidden="true">
+      <path d="M10 76c20-3 34-20 56-20s36 17 56 20" />
+      <path d="M26 86h80" />
+      <circle cx="66" cy="38" r="13" />
+      <path d="M66 13v6M40 38h6M86 38h6M47.6 19.6l4.2 4.2M84.4 19.6l-4.2 4.2" />
+    </svg>
+  );
+}
 export function Empty({
   title,
   children,
-  icon = "sun",
   action,
 }: {
   title: string;
@@ -88,7 +95,7 @@ export function Empty({
 }) {
   return (
     <div className="empty">
-      <Icon name={icon} size={36} tone="brand" />
+      <EmptyArt />
       <h2>{title}</h2>
       <p>{children}</p>
       {action}
@@ -239,6 +246,23 @@ export function download(
   a.download = name;
   a.click();
   setTimeout(() => URL.revokeObjectURL(url), 30_000);
+}
+/** Copy text, falling back to a hidden text box where the Clipboard API is blocked. */
+export async function copyText(text: string) {
+  try {
+    await navigator.clipboard.writeText(text);
+    return;
+  } catch {
+    const area = document.createElement("textarea");
+    area.value = text;
+    area.setAttribute("readonly", "");
+    area.style.cssText = "position:fixed;opacity:0;pointer-events:none";
+    document.body.append(area);
+    area.select();
+    const ok = document.execCommand("copy");
+    area.remove();
+    if (!ok) throw new Error("Copying isn't available in this browser.");
+  }
 }
 export function errorMessage(error: unknown) {
   return error instanceof Error

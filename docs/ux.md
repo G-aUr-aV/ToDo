@@ -1,23 +1,22 @@
 # UX guide
 
-Todo helps one person capture work, choose when it matters and keep context in readable Obsidian files. The Daylight interface uses restrained navigation, legible task rows, one primary Add task action and progressive detail. Full Todo and Mini Today run in a browser or separate Chrome app windows connected to one vault server.
+Todo helps one person capture work, finish it and keep a readable record of what was done in Obsidian files. The interface is calm and keyboard-first: one task list, an always-visible capture line, notes one click away and controls that appear only when needed. The [revamp design](superpowers/specs/2026-11-21-todo-revamp-design.md) is the reference. Full Todo and Mini Today run in a browser or separate Chrome app windows connected to one vault server.
 
 ## Views
 
 | View | Purpose |
 | --- | --- |
-| Inbox | Capture now and organize later |
-| Today | Open tasks planned for today or earlier, plus due and overdue deadlines |
-| Upcoming | Plan future work with distinct plan-date and deadline labels |
-| Projects | Related tasks and a Markdown project note |
-| Labels and search | Find work across titles, notes, projects and tags |
-| Completed and Trash | Review history, reopen completed work and restore trashed tasks |
+| Tasks | Every open task without a future plan date, grouped by project, then **Later** for planned work |
+| Done | Completed tasks by day, each with the first line of its outcome |
+| Projects | The Tasks list filtered to one project, with its description; one project per repository plus a few categories, all stored as vault notes |
+| Search (⌘K) | Find tasks and projects by words in titles, notes and project names |
+| Trash and Settings | Restore trashed tasks; agents, issue links, planning, appearance, vault, data and account |
 
-Plan dates and deadlines are independent. A future plan date does not hide a deadline due today. Focus helps order today's work. Automatic rollover moves unfinished plan dates to today while retaining original dates and roll counts; Settings can disable it.
+Plan dates and deadlines are independent. A future plan date does not hide a deadline that is due. Automatic rollover moves unfinished plan dates to today while retaining original dates and roll counts; Settings can disable it.
 
 ## Capture and editing
 
-Only a title is required to create a task. Plan date, deadline, project, labels and notes can follow. Tasks support Markdown notes and body checklists. Desktop details expand within the workspace; narrow layouts use a separate task view with Back.
+Type in the capture line and press Enter; focus stays for the next task, and pasted multi-line text becomes title plus notes. Opening a task expands a card in place with an editable title, project and date chips, and notes that edit with one click. Deadline, labels, reminder and repeat are added from **+** and shown only when set. Links and issue keys in titles become chips. The copy button or **C** copies a task's name.
 
 Autosave reports Saving and then Saved only after the server acknowledges the write. Unsaved drafts stay on the device. A failed save retains the draft. If Obsidian changes the same note while it is dirty, saving pauses and offers **Copy draft** or **Discard draft & reload**. Discard loads the latest note without writing. Revision checks protect completion, Undo and recovery as well as editing.
 
@@ -25,13 +24,13 @@ Trash is reversible. Completing a repeating task keeps the completed note and cr
 
 ## Mini and Obsidian
 
-[Mini Today](mini-today.md) keeps a compact list of remaining work with completion/Undo and links to full task details. Adding, rescheduling, notes and settings stay in the full workspace. Mini shares the vault, login and same-device appearance settings.
+[Mini Today](mini-today.md) keeps a compact copy of the Tasks list (without Later) with completion/Undo and links to full task details. Adding, rescheduling, notes and settings stay in the full workspace. Mini shares the vault, login and same-device appearance settings.
 
 Open in Obsidian uses the configured device-specific vault name. A remote browser needs the corresponding vault on that device for the URI to work. Tasks remain readable directly through the [vault format](vault-format.md), with private authentication and recovery state stored separately.
 
 ## Responsive and accessible behavior
 
-Narrow layouts use Today / Inbox / Upcoming / More navigation and a single task column. Keep task names readable, focus visible, controls named and status understandable without color alone. Keyboard shortcuts must respect editable fields and the user's shortcut setting. Completion and Undo must remain accessible by keyboard, and motion must respect the user's preference.
+Narrow layouts use Tasks / Done / Search / More navigation and a single column. Keep task names readable, focus visible, controls named and status understandable without color alone. Keyboard shortcuts must respect editable fields and the user's shortcut setting. Completion and Undo must remain accessible by keyboard, and motion must respect the user's preference.
 
 ## Errors and recovery
 

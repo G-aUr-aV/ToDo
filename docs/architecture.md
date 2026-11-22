@@ -4,7 +4,7 @@ Todo is a lightweight personal website with optional Chrome app windows and one 
 
 ## One interface and one engine
 
-React, TypeScript and Vite build the full website and a separate Mini Today entry. Node 24 and Fastify serve the assets and same-origin API. `app/core/` owns Markdown parsing, validation, indexing, writes, imports and recovery. `app/server/` exposes that engine to every browser window. Desktop launchers are small shortcuts to the installed Chrome/Chromium browser.
+React, TypeScript and Vite build the full website and a separate Mini Today entry. Node 24 and Fastify serve the assets and same-origin API. `app/core/` owns Markdown parsing, validation, indexing, writes, imports and recovery. `app/server/` exposes that engine to every browser window and, through a token-authenticated MCP endpoint (`/mcp`), to agents. Desktop launchers are small shortcuts to the installed Chrome/Chromium browser.
 
 Docker is optional server deployment. A client uses an ordinary browser or Chrome's installed-site mode. Full Todo and Mini have distinct install manifest identities; both share the same origin/session. There is no second task database, local native engine or offline write queue.
 
@@ -40,7 +40,7 @@ The server's small stale-revision check remains, including for Undo/restores. It
 
 The server supports one owner and vault. Authentication uses HttpOnly SameSite cookies, Secure under HTTPS, login throttling and CSRF/Origin/Host checks. Sessions expire when the server restarts. API responses are no-store; HTML and install manifests revalidate. CSP restricts executable content to the app. Markdown HTTPS links use normal browser navigation; Obsidian handoff uses a device-specific vault name.
 
-Browsers refresh through server events, opaque same-origin BroadcastChannel invalidations and periodic checks. Mini requests an authenticated metadata-only Today projection and loads separately from full editing, Markdown and ZIP export code. Appearance is shared on the same browser/device. Disconnected Mini shows its last in-memory update and disables writes; sign-out clears the summary.
+Browsers refresh through server events, opaque same-origin BroadcastChannel invalidations and periodic checks. Mini requests an authenticated metadata-only projection of the Tasks list and loads separately from full editing, Markdown and ZIP export code. Appearance is shared on the same browser/device. Disconnected Mini shows its last in-memory update and disables writes; sign-out clears the summary.
 
 ## Build and maintenance
 

@@ -1,76 +1,46 @@
-import { useCallback, useEffect, useRef, useState, Fragment } from "react";
-import { readStored, writeStored, removeStored } from "./storage";
-import type {
-  Task,
-  Project,
-  Snapshot,
-  TaskPatch,
-  Version,
-} from "../core/model";
-import { active, inToday, byPriority, projectFor } from "../core/task-views";
-import { dayInZone } from "../core/dates";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { readStored, writeStored } from "./storage";
+import type { Task, Project, Snapshot, TaskPatch, Version } from "../core/model";
+import { active, inNow, isLater, byPriority } from "../core/task-views";
 import type { SessionInfo } from "../core/protocol";
 import { call, subscribe, ClientError } from "./client";
-import {
-  Banner,
-  Button,
-  Empty,
-  Field,
-  Icon,
-  Modal,
-  errorMessage,
-  useNarrow,
-} from "./components";
-import { TaskEditor, form } from "./Editor";
+import { Banner, Button, Empty, Field, Icon, Modal, copyText, errorMessage } from "./components";
+import { TaskEditor, form, type CardActions } from "./Editor";
 import { Settings, ImportPage } from "./Settings";
-import { DateControl } from "./DateControl";
+import { dateLabel } from "./DateControl";
 import { openMini } from "./mini-window";
-import { ScheduleFields } from "./ScheduleFields";
 import { Reminders } from "./Reminders";
-import { completedOn } from "./task-time";
+import { TaskRow, QuickAdd, NewProjectInput, RichTitle } from "./TaskList";
+import { DoneView } from "./DoneView";
+import { Find, KeyboardSheet } from "./Find";
+import { Popover, MenuItem } from "./Popover";
+import { projectColor } from "./project-color";
 
 type View =
-  | "today"
-  | "inbox"
-  | "upcoming"
-  | "all"
-  | "projects"
-  | "project"
-  | "label"
-  | "search"
-  | "completed"
+  | "tasks"
+  | "done"
   | "trash"
   | "settings"
-  | "help"
-  | "diagnostics"
   | "archived"
-  | "more"
+  | "diagnostics"
   | "import"
   | "history";
-type ModalState = {
-  type: "add" | "project" | "actions" | "archive" | "rename" | "restore";
-  task?: Task;
-  project?: Project;
-  version?: Version;
-};
 const titles: Record<View, string> = {
-  today: "Today",
-  inbox: "Inbox",
-  upcoming: "Upcoming",
-  all: "All tasks",
-  projects: "Projects",
-  project: "Project",
-  label: "Label",
-  search: "Search",
-  completed: "Completed",
+  tasks: "Tasks",
+  done: "Done",
   trash: "Trash",
   settings: "Settings",
-  help: "A small guide to Todo",
-  diagnostics: "Vault status",
   archived: "Archived projects",
-  more: "More",
-  import: "Review before importing",
-  history: "Task versions",
+  diagnostics: "Vault status",
+  import: "Import task notes",
+  history: "Earlier versions",
+};
+type Appearance = {
+  theme: string;
+  density: string;
+  text: string;
+  shortcuts: boolean;
+  motion: string;
 };
 function loadJSON<T>(key: string, fallback: T): T {
   try {
@@ -80,31 +50,44 @@ function loadJSON<T>(key: string, fallback: T): T {
   }
 }
 const modifier = () => (/Mac/.test(navigator.platform) ? "⌘" : "Ctrl");
+const reducedMotion = () =>
+  document.documentElement.dataset.motion === "reduced" ||
+  matchMedia("(prefers-reduced-motion: reduce)").matches;
+const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
 export default function App() {
   const [session, setSession] = useState<SessionInfo | null>(null);
   const [snapshot, setSnapshot] = useState<Snapshot | null>(null);
-  const [view, setView] = useState<View>("today");
-  const [projectId, setProjectId] = useState<string | null>(null);
-  const [label, setLabel] = useState("");
-  const [query, setQuery] = useState("");
-  const [includeCompleted, setIncludeCompleted] = useState(false);
-  const [modal, setModal] = useState<ModalState | null>(null);
-  const [selected, setSelected] = useState<Task | null>(null);
-  const [selectedOccurrence, setSelectedOccurrence] = useState<string>();
+  const [view, setView] = useState<View>("tasks");
+  const [filterProject, setFilterProject] = useState<string | null>(null);
+  const [openId, setOpenId] = useState<string | null>(null);
+  const [notesFor, setNotesFor] = useState<string | null>(null);
+  const [menuFor, setMenuFor] = useState<{ id: string; kind: "project" | "date" } | null>(null);
+  const cardActions = useRef<CardActions | null>(null);
+  const [cursor, setCursor] = useState<string | null>(null);
+  // Tasks finishing their complete/reopen animation keep their old state on screen.
+  const [ghosts, setGhosts] = useState<Map<string, Task>>(new Map());
+  const [fresh, setFresh] = useState<string | null>(null);
   const [error, setError] = useState("");
   const [saving, setSaving] = useState("Saved");
-  const [selectMode, setSelectMode] = useState(false);
-  const [selection, setSelection] = useState(new Set<string>());
   const [toast, setToast] = useState<{
+    id: number;
     text: string;
     undo?: () => Promise<void>;
   } | null>(null);
-  const [settingsTab, setSettingsTab] = useState("general");
+  const [rowMenu, setRowMenu] = useState<{ task: Task; anchor: HTMLElement } | null>(null);
+  const [projectMenu, setProjectMenu] = useState<{
+    kind: "new" | "project";
+    anchor: HTMLElement;
+  } | null>(null);
+  const [find, setFind] = useState(false);
+  const [keysOpen, setKeysOpen] = useState(false);
+  const [more, setMore] = useState(false);
   const [historyTask, setHistoryTask] = useState("");
   const [versions, setVersions] = useState<Version[]>([]);
-  const [filterProject, setFilterProject] = useState("");
-  const [filterTag, setFilterTag] = useState("");
-  const [appearance, setAppearance] = useState(() =>
+  const [restore, setRestore] = useState<{ task: Task; version: Version } | null>(null);
+  const [archive, setArchive] = useState<Project | null>(null);
+  const [appearance, setAppearance] = useState<Appearance>(() =>
     loadJSON("todo:appearance", {
       theme: "light",
       density: "comfortable",
@@ -113,24 +96,25 @@ export default function App() {
       motion: "system",
     }),
   );
-  const narrow = useNarrow();
-  const heading = useRef<HTMLHeadingElement>(null);
   const initialView = useRef(false);
-  const selectedRef = useRef(selected);
-  selectedRef.current = selected;
+  const snapshotRef = useRef(snapshot);
+  snapshotRef.current = snapshot;
+  const addInput = useRef<HTMLInputElement>(null);
+  const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   useEffect(() => {
     writeStored("todo:appearance", JSON.stringify(appearance));
     const system = matchMedia("(prefers-color-scheme: dark)");
     const apply = () => {
-      document.documentElement.dataset.theme =
+      const root = document.documentElement;
+      root.dataset.theme =
         appearance.theme === "system"
           ? system.matches
             ? "dark"
             : "light"
           : appearance.theme;
-      document.documentElement.dataset.density = appearance.density;
-      document.documentElement.dataset.text = appearance.text;
-      document.documentElement.dataset.motion = appearance.motion;
+      root.dataset.density = appearance.density;
+      root.dataset.text = appearance.text;
+      root.dataset.motion = appearance.motion;
     };
     apply();
     system.addEventListener("change", apply);
@@ -142,18 +126,14 @@ export default function App() {
       setSnapshot(data);
       setError("");
       if (!initialView.current) {
-        setView(data.preferences.startPage as View);
+        initialView.current = true;
+        setView(data.preferences.startPage === "done" ? "done" : "tasks");
         const id = new URLSearchParams(location.search).get("task");
         const task = data.tasks.find((t) => t.id === id);
         if (task) {
-          setView("all");
-          setSelected(task);
+          setView(task.status === "done" ? "done" : "tasks");
+          setOpenId(task.id);
         }
-        initialView.current = true;
-      }
-      if (selectedRef.current) {
-        const task = data.tasks.find((t) => t.id === selectedRef.current!.id);
-        if (task) setSelected(task);
       }
       return data;
     } catch (e) {
@@ -199,57 +179,19 @@ export default function App() {
       document.removeEventListener("visibilitychange", visible);
     };
   }, [session?.authenticated, load]);
-  function navigate(next: View, id?: string) {
+  function notice(text: string, undo?: () => Promise<void>) {
+    if (toastTimer.current) clearTimeout(toastTimer.current);
+    setToast({ id: Date.now(), text, undo });
+    toastTimer.current = setTimeout(() => setToast(null), undo ? 6000 : 3200);
+  }
+  function go(next: View, project: string | null = null) {
     document.getElementById("main")?.scrollTo({ top: 0 });
     setView(next);
-    if (id) setProjectId(id);
-    setSelected(null);
-    setSelectMode(false);
-    setSelection(new Set());
-    setSaving("Saved");
+    setFilterProject(project);
+    setOpenId(null);
+    setCursor(null);
+    setMore(false);
   }
-  useEffect(() => {
-    document.getElementById("main")?.scrollTo({ top: 0 });
-    if (view !== "search") heading.current?.focus({ preventScroll: true });
-  }, [view]);
-  useEffect(() => {
-    if (narrow && !selected && view !== "search")
-      heading.current?.focus({ preventScroll: true });
-  }, [narrow, selected?.id]);
-  useEffect(() => {
-    const keys = (e: KeyboardEvent) => {
-      const editing = (e.target as HTMLElement).closest(
-        'input,textarea,select,[contenteditable="true"]',
-      );
-      const hasDialog = !!document.querySelector('[role="dialog"]');
-      if (
-        (e.ctrlKey || e.metaKey) &&
-        e.key.toLowerCase() === "k" &&
-        !hasDialog
-      ) {
-        e.preventDefault();
-        navigate("search");
-      } else if (
-        !editing &&
-        !modal &&
-        !hasDialog &&
-        appearance.shortcuts &&
-        e.key.toLowerCase() === "n" &&
-        !e.ctrlKey &&
-        !e.metaKey &&
-        !e.altKey
-      ) {
-        e.preventDefault();
-        setModal({ type: "add" });
-      } else if (e.key === "Escape" && !modal) setSelected(null);
-    };
-    window.addEventListener("keydown", keys);
-    return () => {
-      window.removeEventListener("keydown", keys);
-    };
-  }, [modal, appearance.shortcuts]);
-  const notice = (text: string, undo?: () => Promise<void>) =>
-    setToast({ text, undo });
   function applyTask(task: Task) {
     setSnapshot((s) =>
       s
@@ -261,7 +203,14 @@ export default function App() {
           }
         : s,
     );
-    if (selectedRef.current?.id === task.id) setSelected(task);
+  }
+  function addProject(project: Project) {
+    setSnapshot((s) =>
+      s && !s.projects.some((p) => p.id === project.id)
+        ? { ...s, projects: [...s.projects, project] }
+        : s,
+    );
+    void load();
   }
   async function mutate(task: Task, patch: TaskPatch, message?: string) {
     setSaving("Saving…");
@@ -287,40 +236,53 @@ export default function App() {
                 patch: form(task),
               });
           applyTask(restored);
-          notice("Change undone.");
+          setFresh(restored.id);
+          notice("Undone.");
+          void load();
         });
       return result;
     } catch (e) {
       setSaving("Changes not saved");
       if (e instanceof ClientError && e.info.code === "CONFLICT") {
-        notice(
-          "This task changed. The list has refreshed; try the action again.",
-        );
+        notice("This task changed elsewhere. The list has refreshed; try again.");
         await load();
       } else notice(errorMessage(e));
       return null;
     }
   }
-  async function bulk(patch: TaskPatch) {
-    let count = 0;
-    for (const id of selection) {
-      const task = snapshot?.tasks.find((t) => t.id === id);
-      if (task && (await mutate(task, patch))) count++;
-    }
-    notice(`${count} task${count === 1 ? "" : "s"} updated.`);
-    setSelectMode(false);
-    setSelection(new Set());
+  /** Check animation, slide out, then the saved result with Undo. */
+  async function settle(task: Task, patch: TaskPatch, message: string) {
+    if (ghosts.has(task.id)) return;
+    setGhosts((old) => new Map(old).set(task.id, task));
+    const [result] = await Promise.all([
+      mutate(task, patch, message),
+      wait(reducedMotion() ? 0 : 560),
+    ]);
+    if (result) setOpenId((id) => (id === task.id ? null : id));
+    setGhosts((old) => {
+      const next = new Map(old);
+      next.delete(task.id);
+      return next;
+    });
   }
-  function openObsidian(task: Task) {
+  const complete = (task: Task) => void settle(task, { status: "done" }, "Completed");
+  const reopen = (task: Task) =>
+    void settle(task, { status: task.previousStatus }, "Reopened");
+  function copyName(task: Task) {
+    copyText(task.title)
+      .then(() => notice("Copied task name"))
+      .catch(() => notice("Copying isn't available in this browser."));
+  }
+  function openObsidian(path: string) {
     const vault = readStored(`todo:obsidian:${snapshot?.vaultKey}`) ?? "";
     if (!vault) {
-      setSettingsTab("vault");
-      navigate("settings");
-      notice("Set the matching Obsidian vault name for this device first.");
+      go("settings");
+      notice("Add this device's Obsidian vault name in Settings first.");
       return;
     }
-    const url = `obsidian://open?vault=${encodeURIComponent(vault)}&file=${encodeURIComponent(task.path)}`;
-    window.location.assign(url);
+    window.location.assign(
+      `obsidian://open?vault=${encodeURIComponent(vault)}&file=${encodeURIComponent(path)}`,
+    );
   }
   async function signedIn(info: SessionInfo) {
     setSession(info);
@@ -337,29 +299,180 @@ export default function App() {
       await call("logout");
       setSession((s) => (s ? { ...s, authenticated: false } : s));
       setSnapshot(null);
-      setSelected(null);
+      setOpenId(null);
     } catch (e) {
       notice(errorMessage(e));
     }
   }
   async function history(id: string) {
     setHistoryTask(id);
-    navigate("history");
+    go("history");
     try {
       setVersions(await call<Version[]>("versions", { id }));
     } catch (e) {
       notice(errorMessage(e));
     }
   }
+  function openTask(task: Task, notes = false) {
+    const target: View = task.trashed ? "trash" : task.status === "done" ? "done" : "tasks";
+    if (view !== target || (filterProject && task.projectId !== filterProject))
+      go(target);
+    setOpenId(task.id);
+    setCursor(task.id);
+    setNotesFor(notes ? task.id : null);
+    requestAnimationFrame(() =>
+      document
+        .querySelector(`[data-task-id="${task.id}"]`)
+        ?.scrollIntoView({ block: "nearest", behavior: "smooth" }),
+    );
+  }
+  // Keyboard: single keys stay out of the way while typing or in a dialog.
+  const keyState = useRef({ openId, cursor, view, shortcuts: appearance.shortcuts });
+  keyState.current = { openId, cursor, view, shortcuts: appearance.shortcuts };
+  useEffect(() => {
+    const visibleIds = () =>
+      [...document.querySelectorAll<HTMLElement>("[data-task-id]")].map(
+        (n) => n.dataset.taskId!,
+      );
+    const taskById = (id: string | null) =>
+      snapshotRef.current?.tasks.find((t) => t.id === id);
+    const keys = (e: KeyboardEvent) => {
+      const target = e.target as HTMLElement;
+      const typing = target.closest('input,textarea,select,[contenteditable="true"]');
+      const layered = document.querySelector('[role=dialog],[role=menu]');
+      const k = keyState.current;
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
+        if (layered) return;
+        e.preventDefault();
+        setFind(true);
+        return;
+      }
+      if (e.key === "Escape" && !layered && !typing) {
+        if (k.openId) {
+          setOpenId(null);
+          requestAnimationFrame(() =>
+            document
+              .querySelector<HTMLElement>(`[data-task-id="${k.openId}"] .task-row`)
+              ?.focus(),
+          );
+        } else setCursor(null);
+        return;
+      }
+      if (typing || layered || !k.shortcuts || e.metaKey || e.ctrlKey || e.altKey)
+        return;
+      if (target.closest("a,button") && e.key === "Enter") return;
+      const ids = visibleIds();
+      const at = k.cursor ? ids.indexOf(k.cursor) : -1;
+      const current = taskById(k.openId ?? k.cursor);
+      const move = (delta: number) => {
+        e.preventDefault();
+        const next = ids[Math.max(0, Math.min(ids.length - 1, at + delta))] ?? null;
+        setCursor(next);
+        if (k.openId && next) setOpenId(next);
+      };
+      switch (e.key) {
+        case "n":
+        case "N":
+          e.preventDefault();
+          if (k.view === "tasks" && addInput.current) addInput.current.focus();
+          else {
+            go("tasks");
+            requestAnimationFrame(() => addInput.current?.focus());
+          }
+          break;
+        case "?":
+          e.preventDefault();
+          setKeysOpen(true);
+          break;
+        case "j":
+        case "ArrowDown":
+          move(at < 0 ? 0 : 1);
+          break;
+        case "k":
+        case "ArrowUp":
+          move(at < 0 ? 0 : -1);
+          break;
+        case "Enter":
+          if (k.cursor) {
+            e.preventDefault();
+            setOpenId(k.openId === k.cursor ? null : k.cursor);
+          }
+          break;
+        case "x":
+          if (current) {
+            e.preventDefault();
+            // An open card saves its pending edits before completing.
+            if (k.openId && cardActions.current) cardActions.current.toggle();
+            else if (current.status === "done") reopen(current);
+            else complete(current);
+          }
+          break;
+        case "p":
+        case "d":
+          if (current) {
+            e.preventDefault();
+            const kind = e.key === "p" ? "project" : "date";
+            if (k.openId && cardActions.current) cardActions.current.openMenu(kind);
+            else {
+              setMenuFor({ id: current.id, kind });
+              setOpenId(current.id);
+            }
+          }
+          break;
+        case "c":
+          if (current) {
+            e.preventDefault();
+            copyName(current);
+          }
+          break;
+        case "e":
+          if (current) {
+            e.preventDefault();
+            openTask(current, true);
+          }
+          break;
+      }
+    };
+    window.addEventListener("keydown", keys);
+    return () => window.removeEventListener("keydown", keys);
+  });
+  // Clicking the page outside the open card closes it (its edits still save).
+  useEffect(() => {
+    if (!openId) return;
+    const down = (e: MouseEvent) => {
+      const target = e.target as HTMLElement;
+      if (!target.closest("#main")) return;
+      if (
+        target.closest(
+          ".task-card,.task-row,.popover,[role=dialog],.quick-add,.toast,a,button,input,textarea,select",
+        )
+      )
+        return;
+      setOpenId(null);
+    };
+    document.addEventListener("mousedown", down);
+    return () => document.removeEventListener("mousedown", down);
+  }, [openId]);
+  useEffect(() => {
+    if (!cursor || openId === cursor) return;
+    document
+      .querySelector<HTMLElement>(`[data-task-id="${cursor}"] .task-row`)
+      ?.focus({ preventScroll: false });
+  }, [cursor, openId]);
+  useEffect(() => {
+    if (!fresh) return;
+    const timer = setTimeout(() => setFresh(null), 1600);
+    return () => clearTimeout(timer);
+  }, [fresh]);
+
   if (!session)
     return (
       <div className="startup">
-        <Icon name="leaf" size={36} tone="brand" />
-        <h1>Todo</h1>
+        <span className="mark large">
+          <Icon name="check" size={22} />
+        </span>
         <p>{error || "Opening your workspace…"}</p>
-        {error && (
-          <Button onClick={() => window.location.reload()}>Try again</Button>
-        )}
+        {error && <Button onClick={() => window.location.reload()}>Try again</Button>}
       </div>
     );
   if (!session.authenticated)
@@ -367,234 +480,111 @@ export default function App() {
   if (!snapshot)
     return (
       <div className="startup">
-        <Icon name="leaf" size={36} tone="brand" />
+        <span className="mark large">
+          <Icon name="check" size={22} />
+        </span>
         <h1>{error ? "Your vault is unavailable" : "Opening your vault…"}</h1>
         <p>{error || "Reading your task notes."}</p>
         <Button onClick={() => void load()}>Retry</Button>
       </div>
     );
-  const s = snapshot;
+  const s = ghosts.size
+    ? { ...snapshot, tasks: snapshot.tasks.map((t) => ghosts.get(t.id) ?? t) }
+    : snapshot;
   const open = s.tasks.filter(active);
-  const inbox = open.filter((t) => t.status === "inbox");
-  const today = open.filter((t) => inToday(t, s.today)).sort(byPriority);
-  const project = s.projects.find((p) => p.id === projectId);
-  const selectedTask = selected
-    ? (s.tasks.find((t) => t.id === selected.id) ?? selected)
-    : null;
-  const focus = today.filter((t) => t.focus && !(t.due && t.due < s.today));
-  const overdue = today.filter((t) => t.due && t.due < s.today);
-  const other = today.filter((t) => !focus.includes(t) && !overdue.includes(t));
   const activeProjects = s.projects.filter((p) => !p.archived);
-  const allTags = [...new Set(open.flatMap((t) => t.tags))].sort();
-  const completedToday = s.tasks.filter(
-    (task) =>
-      !task.trashed &&
-      task.status === "done" &&
-      completedOn(task.completedAt, s.today, s.preferences.timezone),
-  ).length;
-  let pageTitle =
-    view === "project"
-      ? (project?.title ?? "Project")
-      : view === "label"
-        ? label
-        : titles[view];
-  if (narrow && selectedTask) pageTitle = "Task";
-  const descriptions: Partial<Record<View, string>> = {
-    today: "A little clarity for your day.",
-    inbox: "Capture now. Decide when it matters.",
-    upcoming: "A realistic plan for the days ahead.",
-    all: "Every open task has a home here.",
-    projects: "Keep related work and context together.",
-    project: "Make room for the important work.",
-    completed: "Keep what you have finished within reach.",
-    trash: "Restore a task whenever you need it.",
-    settings: "Make Todo feel at home.",
-  };
-  function row(task: Task, meta?: string) {
-    const expanded =
-      selectedTask?.id === task.id &&
-      (view !== "upcoming" || selectedOccurrence === meta);
-    const p = projectFor(task, s.projects);
-    const dateLabel =
-      meta ??
-      (task.due
-        ? task.due < s.today
-          ? "Deadline passed"
-          : task.due === s.today
-            ? "Due today"
-            : task.due === addDays(s.today, 1)
-              ? "Due tomorrow"
-              : "Due " + shortDate(task.due)
-        : task.scheduled && task.scheduled < s.today
-          ? "Planned " + shortDate(task.scheduled)
-          : "");
-    return (
-      <Fragment key={task.id}>
-        <div
-          className={
-            "task-row " +
-            (task.status === "done" ? "completed" : "") +
-            (expanded ? " expanded" : "")
-          }
-        >
-          <label className="checkbox-target">
-            <input
-              type="checkbox"
-              aria-label={`${selectMode ? "Select" : task.status === "done" ? "Reopen" : "Complete"} ${task.title}`}
-              checked={
-                selectMode ? selection.has(task.id) : task.status === "done"
-              }
-              onChange={() => {
-                if (selectMode) {
-                  setSelection((old) => {
-                    const next = new Set(old);
-                    if (next.has(task.id)) next.delete(task.id);
-                    else next.add(task.id);
-                    return next;
-                  });
-                } else
-                  void mutate(
-                    task,
-                    {
-                      status:
-                        task.status === "done" ? task.previousStatus : "done",
-                    },
-                    task.status === "done"
-                      ? "Task reopened."
-                      : "Task completed.",
-                  );
-              }}
-            />
-          </label>
-          <button
-            className="task-open"
-            onClick={() => {
-              setSelectedOccurrence(meta);
-              setSelected(expanded ? null : task);
-              setSaving("Saved");
-            }}
-            aria-expanded={expanded}
-          >
-            <span>
-              {task.title}
-              {task.repeat && <small className="task-badge">Repeats</small>}
-              {task.reminder && <small className="task-badge">Reminder</small>}
-            </span>
-            {narrow && dateLabel && (
-              <small
-                className={task.due && task.due < s.today ? "warning-text" : ""}
-              >
-                {dateLabel}
-              </small>
-            )}
-          </button>
-          {p || task.project ? (
-            <button
-              className="task-project"
-              onClick={() =>
-                p ? navigate("project", p.id) : setSelected(task)
-              }
-            >
-              {p?.title ?? "Unlinked project"}
-            </button>
-          ) : (
-            <span className="task-project" />
-          )}
-          <span
-            className={
-              "task-date " +
-              (task.due && task.due < s.today ? "warning-text" : "")
-            }
-          >
-            {dateLabel && (
-              <>
-                <Icon name="calendar-week" size={16} />
-                {dateLabel}
-              </>
-            )}
-          </span>
-          <button
-            className="icon-button row-menu"
-            aria-label={"Actions for " + task.title}
-            onClick={() => {
-              setSelectedOccurrence(meta);
-              setModal({ type: "actions", task });
-            }}
-          >
-            <Icon name="dots" />
-          </button>
-        </div>
-        {expanded && !narrow && (
-          <TaskEditor
-            key={task.id}
-            task={task}
-            snapshot={s}
-            onSaved={applyTask}
-            onState={setSaving}
-            onClose={() => setSelected(null)}
-            onObsidian={openObsidian}
-          />
-        )}
-      </Fragment>
-    );
-  }
-  function section(title: string, tasks: Task[], meta?: (t: Task) => string) {
-    return tasks.length > 0 ? (
-      <section className="task-section">
-        <h2>{title}</h2>
-        {tasks.map((t) => row(t, meta?.(t)))}
-      </section>
-    ) : null;
-  }
-  const navItems: [View, string, string][] = [
-    ["inbox", "Inbox", "inbox"],
-    ["today", "Today", "sun"],
-    ["upcoming", "Upcoming", "calendar-week"],
-    ["all", "All tasks", "list-check"],
-  ];
-  const nav = (
-    id: View,
-    title: string,
-    icon: string,
-    count?: number,
-    extraId?: string,
+  const project = s.projects.find((p) => p.id === filterProject) ?? null;
+  const scoped = open.filter((t) => !filterProject || t.projectId === filterProject);
+  const now = scoped.filter((t) => inNow(t, s.today)).sort(byPriority);
+  const later = scoped
+    .filter((t) => isLater(t, s.today))
+    .sort((a, b) => (a.scheduled ?? "").localeCompare(b.scheduled ?? "") || byPriority(a, b));
+  const known = new Set(s.projects.map((p) => p.id));
+  const groups: { key: string; project: Project | null; tasks: Task[] }[] = filterProject
+    ? [{ key: "only", project, tasks: now }]
+    : [
+        ...s.projects.map((p) => ({
+          key: p.id,
+          project: p,
+          tasks: now.filter((t) => t.projectId === p.id),
+        })),
+        {
+          key: "none",
+          project: null,
+          tasks: now.filter((t) => !t.projectId || !known.has(t.projectId)),
+        },
+      ].filter((g) => g.tasks.length);
+
+  const row = (
+    task: Task,
+    opts: { right?: React.ReactNode; showProject?: boolean; outcome?: boolean } = {},
   ) => (
+    <TaskRow
+      key={task.id}
+      task={task}
+      snapshot={s}
+      open={openId === task.id}
+      leaving={ghosts.has(task.id)}
+      fresh={fresh === task.id}
+      focused={cursor === task.id}
+      {...opts}
+      onOpen={() => {
+        setCursor(task.id);
+        setNotesFor(null);
+        setMenuFor(null);
+        setOpenId(openId === task.id ? null : task.id);
+      }}
+      onCheck={() => (task.status === "done" ? reopen(task) : complete(task))}
+      onCopy={() => copyName(task)}
+      onMenu={(anchor) => setRowMenu({ task, anchor })}
+      card={(leading, trailing) => (
+        <TaskEditor
+          key={task.id}
+          task={task}
+          snapshot={s}
+          onSaved={applyTask}
+          onState={setSaving}
+          onClose={() => setOpenId(null)}
+          onComplete={complete}
+          onProjectCreated={addProject}
+          leading={leading}
+          trailing={trailing}
+          editNotes={notesFor === task.id}
+          initialMenu={menuFor?.id === task.id ? menuFor.kind : null}
+          actionsRef={cardActions}
+        />
+      )}
+    />
+  );
+  const longDate = new Intl.DateTimeFormat("en-GB", {
+    timeZone: s.preferences.timezone,
+    weekday: "long",
+    day: "numeric",
+    month: "long",
+  }).format(new Date(s.now));
+  const navButton = (target: View, label: string, icon: string, count?: number) => (
     <button
-      className={
-        "nav-item " +
-        (view === id && (id !== "project" || projectId === extraId)
-          ? "selected"
-          : "")
-      }
-      onClick={() => navigate(id, extraId)}
-      aria-current={
-        view === id && (id !== "project" || projectId === extraId)
-          ? "page"
-          : undefined
-      }
+      className="nav-item"
+      aria-current={view === target && !filterProject ? "page" : undefined}
+      onClick={() => go(target)}
     >
-      <Icon name={icon} tone={view === id ? "brand" : "muted"} />
-      <span>{title}</span>
-      {count !== undefined && <small>{count}</small>}
+      <Icon name={icon} />
+      <span>{label}</span>
+      {!!count && <small>{count}</small>}
     </button>
   );
-  const searchResults = s.tasks
-    .filter(
-      (t) =>
-        !t.trashed &&
-        (includeCompleted || t.status !== "done") &&
-        `${t.title}\n${t.notes}\n${t.tags.join(" ")}\n${projectFor(t, s.projects)?.title ?? ""}`
-          .toLowerCase()
-          .includes(query.toLowerCase()),
-    )
-    .sort(byPriority);
-  const filteredAll = open
-    .filter(
-      (t) =>
-        (!filterProject || t.projectId === filterProject) &&
-        (!filterTag || t.tags.includes(filterTag)),
-    )
-    .sort(byPriority);
+  const projectLinks = activeProjects.map((p) => (
+    <button
+      key={p.id}
+      className="nav-item"
+      aria-current={filterProject === p.id && view === "tasks" ? "page" : undefined}
+      onClick={() => go("tasks", p.id)}
+    >
+      <span className="swatch" style={{ background: projectColor(p.id) }} />
+      <span>{p.title}</span>
+      <small>{open.filter((t) => t.projectId === p.id).length || ""}</small>
+    </button>
+  ));
   return (
     <div className="app-shell">
       <a className="skip-link" href="#main">
@@ -602,1027 +592,616 @@ export default function App() {
       </a>
       <aside className="sidebar" aria-label="Workspace navigation">
         <div className="wordmark">
-          <Icon name="leaf" size={28} tone="brand" />
-          <span>Todo</span>
+          <span className="mark">
+            <Icon name="check" size={13} />
+          </span>
+          Todo
         </div>
-        <button className="search-shortcut" onClick={() => navigate("search")}>
+        <button className="search-button" onClick={() => setFind(true)}>
           <Icon name="search" />
           <span>Search</span>
-          <kbd>{modifier()} K</kbd>
+          <kbd>{modifier()}K</kbd>
         </button>
-        <nav className="primary-nav">
-          {navItems.map(([id, title, icon]) => (
-            <Fragment key={id}>
-              {nav(id, title, icon, id === "inbox" ? inbox.length : undefined)}
-            </Fragment>
-          ))}
+        <nav className="nav-group">
+          {navButton("tasks", "Tasks", "circle", open.length)}
+          {navButton("done", "Done", "circle-check")}
         </nav>
-        <div className="nav-divider" />
-        <nav className="project-nav">
-          {nav("projects", "Projects", "folder")}
-          {activeProjects.slice(0, 8).map((p) => (
-            <Fragment key={p.id}>
-              {nav("project", p.title, "folder", undefined, p.id)}
-            </Fragment>
-          ))}
+        <div className="side-heading">
+          <span>Projects</span>
+          <button
+            className="icon-button"
+            aria-label="New project"
+            onClick={(e) => setProjectMenu({ kind: "new", anchor: e.currentTarget })}
+          >
+            <Icon name="plus" size={14} />
+          </button>
+        </div>
+        <nav className="nav-group projects">
+          {projectLinks}
           {!activeProjects.length && (
-            <button
-              className="nav-item"
-              onClick={() => setModal({ type: "project" })}
-            >
-              <Icon name="plus" />
-              <span>New project</span>
-            </button>
+            <p className="side-hint">Projects group related work, like a repository.</p>
           )}
         </nav>
-        <nav className="secondary-nav">
-          {nav("completed", "Completed", "circle-check")}
-          {nav("trash", "Trash", "trash")}
-          {nav("settings", "Settings", "settings")}
+        <div className="side-spacer" />
+        <nav className="nav-group">
+          {navButton("trash", "Trash", "trash")}
+          {navButton("settings", "Settings", "settings")}
         </nav>
-        <button
-          className="vault-status"
-          onClick={() => {
-            setSettingsTab("vault");
-            navigate("settings");
-          }}
-        >
-          <span>{s.vaultName}</span>
-          <small>
-            {error
-              ? "Connection interrupted"
-              : saving === "Saved"
-                ? "Saved to vault"
-                : saving}
-          </small>
+        <button className="vault-status" onClick={() => go("settings")}>
+          <i className={error ? "offline" : saving === "Saving…" ? "saving" : ""} />
+          <span>{error ? "Connection interrupted" : saving === "Saved" ? "Saved to vault" : saving}</span>
         </button>
       </aside>
-      <main
-        id="main"
-        className={"main " + (narrow && selectedTask ? "phone-detail" : "")}
-      >
-        {!(narrow && selectedTask) && (
-          <header
-            className={
-              "page-header " + (view === "today" ? "today-header" : "")
-            }
-          >
-            {view === "today" && (
-              <div className="today-date">
-                {new Intl.DateTimeFormat("en-GB", {
-                  timeZone: s.preferences.timezone,
-                  weekday: "long",
-                  day: "numeric",
-                  month: "long",
-                  year: "numeric",
-                }).format(new Date(s.now))}
-              </div>
-            )}
-            <h1 ref={heading} tabIndex={-1}>
-              {pageTitle}
-            </h1>
-            {descriptions[view] && <p>{descriptions[view]}</p>}
-            {view === "today" && !narrow && (
-              <Button
-                kind="ghost"
-                className="mini-launch"
-                icon="device-desktop"
-                onClick={openMini}
-              >
-                Mini Today
-              </Button>
-            )}
-            {![
-              "settings",
-              "help",
-              "diagnostics",
-              "import",
-              "history",
-              "more",
-              "archived",
-            ].includes(view) && (
-              <Button
-                className="page-action"
-                icon="plus"
-                onClick={() =>
-                  setModal({ type: view === "projects" ? "project" : "add" })
-                }
-              >
-                {view === "projects" ? "New project" : "Add task"}
-              </Button>
-            )}
-          </header>
-        )}
-        {error && (
-          <Banner title="Connection interrupted">
-            <p>{error}</p>
-            <Button kind="secondary" onClick={() => void load()}>
-              Retry connection
-            </Button>
-          </Banner>
-        )}
-        {s.diagnostics.length > 0 && view !== "diagnostics" && (
-          <div className="diagnostic-hint">
-            <button onClick={() => navigate("diagnostics")}>
-              <Icon name="alert-triangle" size={16} tone="warning" />
-              {s.diagnostics.length} note{s.diagnostics.length === 1 ? "" : "s"}{" "}
-              need attention
-            </button>
-          </div>
-        )}
-        <Reminders
-          tasks={open.filter((task) => !!task.reminder)}
-          vaultKey={s.vaultKey}
-          serverNow={s.now}
-          onOpen={(id) => {
-            const task = s.tasks.find((value) => value.id === id);
-            if (task) {
-              navigate("all");
-              setSelected(task);
-            }
-          }}
-          onChanged={() => void load()}
-        />
-        {narrow && selectedTask ? (
-          <TaskEditor
-            key={selectedTask.id}
-            task={selectedTask}
-            snapshot={s}
-            onSaved={applyTask}
-            onState={setSaving}
-            onClose={() => setSelected(null)}
-            onObsidian={openObsidian}
-          />
-        ) : (
-          <>
-            {view === "today" &&
-              (today.length ? (
-                <>
-                  {section("Deadline passed", overdue)}
-                  {section("Your focus", focus)}
-                  {section(focus.length ? "Other tasks" : "Your tasks", other)}
-                </>
-              ) : (
-                <Empty
-                  title="A clear day."
-                  action={
-                    <Button onClick={() => setModal({ type: "add" })}>
-                      Add task
-                    </Button>
-                  }
-                >
-                  Add a task when something comes to mind, or choose one from
-                  Inbox or a project.
-                </Empty>
-              ))}
-            {view === "today" && completedToday > 0 && (
-              <Button kind="ghost" onClick={() => navigate("completed")}>
-                Completed today · {completedToday}
-              </Button>
-            )}
-            {view === "inbox" &&
-              (inbox.length ? (
-                <>
-                  <div className="list-toolbar">
-                    <Button
-                      kind="ghost"
-                      onClick={() => {
-                        setSelectMode(!selectMode);
-                        setSelection(new Set());
-                      }}
-                    >
-                      {selectMode ? "Finish selecting" : "Select tasks"}
-                    </Button>
-                  </div>
-                  {selectMode && (
-                    <Banner
-                      kind="success"
-                      title={`${selection.size} task${selection.size === 1 ? "" : "s"} selected`}
-                    >
-                      Selection mode is separate from task completion.
-                    </Banner>
-                  )}
-                  {section(
-                    `${inbox.length} task${inbox.length === 1 ? "" : "s"} waiting for a decision`,
-                    inbox,
-                  )}
-                  {selectMode && (
-                    <div className="bulk-toolbar">
-                      <Field label="Plan selected tasks">
-                        <input
-                          type="date"
-                          aria-label="Plan selected tasks"
-                          onChange={(e) =>
-                            e.target.value &&
-                            void bulk({
-                              scheduled: e.target.value,
-                              status: "todo",
-                            })
-                          }
-                          disabled={!selection.size}
-                        />
-                      </Field>
-                      <Field label="Move to project">
-                        <select
-                          value=""
-                          aria-label="Move selected tasks to project"
-                          onChange={(e) =>
-                            e.target.value &&
-                            void bulk({
-                              projectId: e.target.value,
-                              status: "todo",
-                            })
-                          }
-                          disabled={!selection.size}
-                        >
-                          <option value="">Choose project</option>
-                          {activeProjects.map((p) => (
-                            <option key={p.id} value={p.id}>
-                              {p.title}
-                            </option>
-                          ))}
-                        </select>
-                      </Field>
-                      <Button
-                        disabled={!selection.size}
-                        onClick={() => void bulk({ status: "todo" })}
-                      >
-                        Mark ready
-                      </Button>
-                    </div>
-                  )}
-                </>
-              ) : (
-                <Empty
-                  title="Nothing waiting."
-                  icon="inbox"
-                  action={
-                    <Button onClick={() => setModal({ type: "add" })}>
-                      Add task
-                    </Button>
-                  }
-                >
-                  Add a task when something comes to mind.
-                </Empty>
-              ))}
-            {view === "upcoming" && (
-              <Upcoming tasks={open} today={s.today} row={row} />
-            )}
-            {view === "all" && (
-              <>
-                <div className="list-toolbar">
-                  <span className="filter-count">Open · {open.length}</span>
-                  <select
-                    aria-label="Filter by project"
-                    value={filterProject}
-                    onChange={(e) => setFilterProject(e.target.value)}
-                  >
-                    <option value="">Project: All</option>
-                    {s.projects.map((p) => (
-                      <option key={p.id} value={p.id}>
-                        {p.title}
-                      </option>
-                    ))}
-                  </select>
-                  <select
-                    aria-label="Filter by label"
-                    value={filterTag}
-                    onChange={(e) => setFilterTag(e.target.value)}
-                  >
-                    <option value="">Label: All</option>
-                    {allTags.map((t) => (
-                      <option key={t}>{t}</option>
-                    ))}
-                  </select>
-                </div>
-                {filteredAll.length ? (
-                  section(`${filteredAll.length} open tasks`, filteredAll)
-                ) : (
-                  <Empty title="No open tasks." icon="list-check">
-                    Add your first task or change the filters.
-                  </Empty>
-                )}
-              </>
-            )}
-            {(view === "projects" || view === "archived") && (
-              <>
-                {view === "archived" && (
-                  <p className="muted">
-                    Project notes and tasks stay in the vault when a project is
-                    archived.
-                  </p>
-                )}
-                {s.projects
-                  .filter((p) => p.archived === (view === "archived"))
-                  .map((p) => (
-                    <div className="project-row" key={p.id}>
-                      <Icon name="folder" size={28} tone="brand" />
-                      <button
-                        className="project-open"
-                        onClick={() => navigate("project", p.id)}
-                      >
-                        <strong>{p.title}</strong>
-                        <span>
-                          {p.notes.trim().split("\n")[0] ||
-                            "Keep related work and context together."}
-                        </span>
-                      </button>
-                      <span className="muted">
-                        {open.filter((t) => t.projectId === p.id).length} open
-                        tasks
-                      </span>
-                      {view === "archived" ? (
-                        <Button
-                          kind="secondary"
-                          onClick={() =>
-                            void call("updateProject", {
-                              id: p.id,
-                              revision: p.revision,
-                              patch: { archived: false },
-                            })
-                              .then(() => {
-                                void load();
-                                notice("Project restored.");
-                              })
-                              .catch((e) => notice(errorMessage(e)))
-                          }
-                        >
-                          Restore project
-                        </Button>
-                      ) : (
-                        <button
-                          className="icon-button"
-                          aria-label={"Open " + p.title}
-                          onClick={() => navigate("project", p.id)}
-                        >
-                          <Icon name="chevron-right" />
-                        </button>
-                      )}
-                    </div>
-                  ))}
-                {!s.projects.some(
-                  (p) => p.archived === (view === "archived"),
-                ) && (
-                  <Empty
-                    title={
-                      view === "archived"
-                        ? "No archived projects."
-                        : "Make room for a project."
-                    }
-                    icon="folder"
-                    action={
-                      view === "projects" ? (
-                        <Button onClick={() => setModal({ type: "project" })}>
-                          Create project
-                        </Button>
-                      ) : undefined
-                    }
-                  >
-                    Keep related tasks and notes together when a simple list is
-                    not enough.
-                  </Empty>
-                )}
-                <Button
-                  kind="ghost"
-                  onClick={() =>
-                    navigate(view === "archived" ? "projects" : "archived")
-                  }
-                >
-                  {view === "archived"
-                    ? "Back to active projects"
-                    : "View archived projects"}
-                </Button>
-              </>
-            )}
-            {view === "project" && project && (
-              <>
-                <ProjectNotes
-                  project={project}
-                  onSaved={() => void load()}
-                  onError={notice}
-                />
-                {section(
-                  "Tasks",
-                  open
-                    .filter((t) => t.projectId === project.id)
-                    .sort(byPriority),
-                )}
-                {!open.some((t) => t.projectId === project.id) && (
-                  <Empty
-                    title="A little room to start."
-                    icon="folder"
-                    action={
-                      <Button onClick={() => setModal({ type: "add" })}>
-                        Add a task
-                      </Button>
-                    }
-                  >
-                    Capture the next step for this project.
-                  </Empty>
-                )}
-                <Button
-                  kind="ghost"
-                  onClick={() => setModal({ type: "archive", project })}
-                >
-                  {project.archived ? "Restore project" : "Archive project"}
-                </Button>
-              </>
-            )}
-            {view === "label" &&
-              section(
-                `${label} · ${open.filter((t) => t.tags.includes(label)).length} matching tasks`,
-                open.filter((t) => t.tags.includes(label)),
+      <main id="main" className="main">
+        <div className="page" key={view + (filterProject ?? "")}>
+          {(view === "tasks" || view === "done") && project ? (
+            <ProjectHeader
+              project={project}
+              mode={view}
+              onMode={(mode) => go(mode, project.id)}
+              onSaved={() => void load()}
+              onError={notice}
+              onMenu={(anchor) => setProjectMenu({ kind: "project", anchor })}
+            />
+          ) : (
+            <header className="page-header">
+              <h1>{titles[view]}</h1>
+              {view === "tasks" && <span className="sub">{longDate}</span>}
+              {view === "done" && (
+                <span className="sub">What you finished, with what was done.</span>
               )}
-            {view === "search" && (
-              <>
-                <Field label="Search tasks, notes and projects">
-                  <input
-                    autoFocus
-                    type="search"
-                    value={query}
-                    onChange={(e) => setQuery(e.target.value)}
-                    placeholder="Search your workspace"
-                  />
-                </Field>
-                <label className="toggle-label">
-                  <input
-                    type="checkbox"
-                    checked={includeCompleted}
-                    onChange={(e) => setIncludeCompleted(e.target.checked)}
-                  />
-                  Include completed tasks
-                </label>
-                {query ? (
-                  searchResults.length ? (
-                    section(
-                      `${searchResults.length} task${searchResults.length === 1 ? "" : "s"} found`,
-                      searchResults,
-                    )
-                  ) : (
-                    <Empty
-                      title="No tasks found."
-                      icon="search"
-                      action={
-                        <Button kind="secondary" onClick={() => setQuery("")}>
-                          Clear search
-                        </Button>
-                      }
-                    >
-                      Try a shorter query or include completed tasks.
-                    </Empty>
-                  )
-                ) : (
-                  <p className="muted">
-                    Search titles, notes, project names and labels.
-                  </p>
-                )}
-                {query &&
-                  s.projects
-                    .filter((p) =>
-                      (p.title + " " + p.notes)
-                        .toLowerCase()
-                        .includes(query.toLowerCase()),
-                    )
-                    .map((p) => (
-                      <Button
-                        kind="ghost"
-                        icon="folder"
-                        key={p.id}
-                        onClick={() => navigate("project", p.id)}
-                      >
-                        {p.title}
-                      </Button>
-                    ))}
-                {allTags.length > 0 && (
-                  <div className="label-links">
-                    <span>Labels</span>
-                    {allTags.map((t) => (
-                      <Button
-                        key={t}
-                        kind="ghost"
-                        onClick={() => {
-                          setLabel(t);
-                          navigate("label");
-                        }}
-                      >
-                        {t}
-                      </Button>
-                    ))}
-                  </div>
-                )}
-              </>
-            )}
-            {view === "completed" &&
-              (s.tasks.some((t) => !t.trashed && t.status === "done") ? (
-                section(
-                  "Completed tasks",
-                  s.tasks
-                    .filter((t) => !t.trashed && t.status === "done")
-                    .sort((a, b) =>
-                      (b.completedAt ?? "").localeCompare(a.completedAt ?? ""),
-                    ),
-                  (t) =>
-                    t.completedAt
-                      ? "Completed " +
-                        shortDate(
-                          dayInZone(
-                            new Date(t.completedAt),
-                            s.preferences.timezone,
-                          ),
-                        )
-                      : "Completed",
-                )
-              ) : (
-                <Empty title="Your progress will be here." icon="circle-check">
-                  Completed tasks stay in the vault and can be reopened.
-                </Empty>
-              ))}
-            {view === "trash" && (
-              <>
-                <Banner title="Your notes are kept" kind="success">
-                  Trashed tasks stay in the vault and can be restored here.
-                </Banner>
-                {s.tasks
-                  .filter((t) => t.trashed)
-                  .map((t) => (
-                    <div className="trash-row" key={t.id}>
-                      {row(t)}
-                      <Button
-                        kind="secondary"
-                        onClick={() =>
-                          void mutate(t, { trashed: false }, "Task restored.")
-                        }
-                      >
-                        Restore task
-                      </Button>
-                    </div>
-                  ))}
-                {!s.tasks.some((t) => t.trashed) && (
-                  <Empty title="Nothing in Trash." icon="trash">
-                    Removed tasks can be restored here. Notes are never
-                    automatically deleted.
-                  </Empty>
-                )}
-              </>
-            )}
-            {view === "settings" && (
-              <Settings
-                snapshot={s}
-                tab={settingsTab}
-                setTab={setSettingsTab}
-                appearance={appearance}
-                setAppearance={setAppearance}
-                onSaved={() => void load()}
-                onNotice={notice}
-                onNavigate={navigate}
-                onHistory={history}
-                onLogout={() => void logout()}
-              />
-            )}
-            {view === "more" && (
-              <div className="more-menu">
-                <button onClick={openMini}>
-                  <Icon name="device-desktop" />
-                  <span>Mini Today</span>
-                  <Icon name="chevron-right" />
-                </button>
-                {(
-                  [
-                    "search",
-                    "all",
-                    "projects",
-                    "completed",
-                    "trash",
-                    "settings",
-                    "help",
-                  ] as View[]
-                ).map((v) => (
-                  <button key={v} onClick={() => navigate(v)}>
-                    <Icon
-                      name={
-                        {
-                          search: "search",
-                          all: "list-check",
-                          projects: "folder",
-                          completed: "circle-check",
-                          trash: "trash",
-                          settings: "settings",
-                          help: "help-circle",
-                        }[v as "search"]
-                      }
-                    />
-                    <span>{titles[v]}</span>
-                    <Icon name="chevron-right" />
-                  </button>
-                ))}
-              </div>
-            )}
-            {view === "help" && <Help />}
-            {view === "diagnostics" && (
-              <>
-                <Banner
-                  title="Vault status"
-                  kind={s.diagnostics.length ? "warning" : "success"}
-                >
-                  {s.diagnostics.length
-                    ? `${s.diagnostics.length} notes need attention. Their files are preserved.`
-                    : `${open.length} open tasks, ${s.tasks.filter((t) => t.status === "done" && !t.trashed).length} completed and ${s.tasks.filter((t) => t.trashed).length} in Trash.`}
-                </Banner>
-                {s.diagnostics.map((d) => (
-                  <div className="diagnostic-row" key={d.id}>
-                    <div>
-                      <strong>{d.path}</strong>
-                      <p>{d.message}</p>
-                    </div>
-                    {d.adoptable && (
-                      <Button
-                        kind="secondary"
-                        onClick={() =>
-                          void call("adopt", { id: d.id, revision: d.revision })
-                            .then(() => {
-                              void load();
-                              notice("Task note adopted.");
-                            })
-                            .catch((e) => notice(errorMessage(e)))
-                        }
-                      >
-                        Adopt note
-                      </Button>
-                    )}
-                  </div>
-                ))}
-                <Button
-                  kind="secondary"
-                  icon="refresh"
-                  onClick={() => void load()}
-                >
-                  Rescan vault
-                </Button>
-              </>
-            )}
-            {view === "import" && (
-              <ImportPage
-                onImported={() => {
-                  void load();
-                  navigate("inbox");
-                  notice("Task notes imported.");
-                }}
-              />
-            )}
-            {view === "history" && (
-              <>
-                <Field label="Task">
-                  <select
-                    value={historyTask}
-                    onChange={(e) => void history(e.target.value)}
+              {view === "tasks" && (
+                <span className="header-tools">
+                  <button
+                    className="icon-button"
+                    title="Open Mini Today"
+                    aria-label="Open Mini Today"
+                    onClick={openMini}
                   >
-                    <option value="">Choose a task</option>
-                    {s.tasks.map((t) => (
-                      <option key={t.id} value={t.id}>
-                        {t.title}
-                      </option>
-                    ))}
-                  </select>
-                </Field>
-                {versions.map((v) => (
-                  <div className="version-row" key={v.id}>
-                    <div>
-                      <strong>{v.title}</strong>
-                      <span>{new Date(v.savedAt).toLocaleString()}</span>
-                    </div>
+                    <Icon name="device-desktop" />
+                  </button>
+                  <button
+                    className="icon-button"
+                    title="Keyboard shortcuts (?)"
+                    aria-label="Keyboard shortcuts"
+                    onClick={() => setKeysOpen(true)}
+                  >
+                    <Icon name="keyboard" />
+                  </button>
+                </span>
+              )}
+            </header>
+          )}
+          {error && (
+            <Banner title="Connection interrupted">
+              <p>{error}</p>
+              <Button kind="secondary" onClick={() => void load()}>
+                Retry connection
+              </Button>
+            </Banner>
+          )}
+          {s.diagnostics.length > 0 && view !== "diagnostics" && (
+            <button className="diagnostic-hint" onClick={() => go("diagnostics")}>
+              <Icon name="alert-triangle" tone="warning" />
+              {s.diagnostics.length} note{s.diagnostics.length === 1 ? "" : "s"} need
+              attention
+            </button>
+          )}
+          <Reminders
+            tasks={open.filter((task) => !!task.reminder)}
+            vaultKey={s.vaultKey}
+            serverNow={s.now}
+            onOpen={(id) => {
+              const task = s.tasks.find((value) => value.id === id);
+              if (task) openTask(task);
+            }}
+            onChanged={() => void load()}
+          />
+          {view === "tasks" && (
+            <>
+              <QuickAdd
+                snapshot={s}
+                projectId={filterProject}
+                inputRef={addInput}
+                onCreated={(task) => {
+                  applyTask(task);
+                  setFresh(task.id);
+                }}
+                onProjectCreated={addProject}
+                onError={notice}
+              />
+              {groups.map((g) => (
+                <section className="group" key={g.key}>
+                  {!filterProject && (
+                    <h2 className="group-title">
+                      {g.project ? (
+                        <button onClick={() => go("tasks", g.project!.id)}>
+                          <span
+                            className="swatch"
+                            style={{ background: projectColor(g.project.id) }}
+                          />
+                          {g.project.title}
+                        </button>
+                      ) : (
+                        "No project"
+                      )}
+                      <span className="count">{g.tasks.length}</span>
+                    </h2>
+                  )}
+                  {g.tasks.map((t) => row(t))}
+                </section>
+              ))}
+              {!now.length && (
+                <Empty title="All clear.">
+                  {later.length
+                    ? "Nothing needs you right now. Later work is below."
+                    : "Nothing open. Add a task above when something comes up."}
+                </Empty>
+              )}
+              {later.length > 0 && (
+                <section className="group later">
+                  <h2 className="group-title">
+                    Later <span className="count">{later.length}</span>
+                  </h2>
+                  {later.map((t) =>
+                    row(t, {
+                      right: t.scheduled ? dateLabel(t.scheduled, s.today) : undefined,
+                    }),
+                  )}
+                </section>
+              )}
+            </>
+          )}
+          {view === "done" && (
+            <DoneView
+              snapshot={s}
+              projectId={filterProject}
+              row={(t) => row(t, { outcome: true, showProject: !filterProject })}
+            />
+          )}
+          {view === "trash" && (
+            <>
+              {s.tasks
+                .filter((t) => t.trashed)
+                .map((t) => (
+                  <div className="trash-row" key={t.id}>
+                    <span className="row-title">
+                      <RichTitle text={t.title} template={s.preferences.issueLinkTemplate} />
+                    </span>
+                    <Button
+                      kind="secondary"
+                      onClick={() => void mutate(t, { trashed: false }, "Restored")}
+                    >
+                      Restore
+                    </Button>
+                  </div>
+                ))}
+              {!s.tasks.some((t) => t.trashed) && (
+                <Empty title="Nothing in Trash.">
+                  Removed tasks stay in the vault and can be restored here.
+                </Empty>
+              )}
+            </>
+          )}
+          {view === "settings" && (
+            <Settings
+              snapshot={s}
+              appearance={appearance}
+              setAppearance={setAppearance}
+              onSaved={() => void load()}
+              onNotice={notice}
+              onNavigate={(v) => go(v)}
+              onHistory={history}
+              onLogout={() => void logout()}
+            />
+          )}
+          {view === "archived" && (
+            <>
+              <p className="muted lead">
+                Archived projects keep their notes and tasks in the vault.
+              </p>
+              {s.projects
+                .filter((p) => p.archived)
+                .map((p) => (
+                  <div className="list-row" key={p.id}>
+                    <span className="swatch" style={{ background: projectColor(p.id) }} />
+                    <strong>{p.title}</strong>
                     <Button
                       kind="secondary"
                       onClick={() =>
-                        setModal({
-                          type: "restore",
-                          task: s.tasks.find((t) => t.id === historyTask),
-                          version: v,
+                        void call("updateProject", {
+                          id: p.id,
+                          revision: p.revision,
+                          patch: { archived: false },
                         })
+                          .then(() => {
+                            void load();
+                            notice("Project restored");
+                          })
+                          .catch((e) => notice(errorMessage(e)))
                       }
                     >
-                      Review version
+                      Restore
                     </Button>
                   </div>
                 ))}
-                {!versions.length && (
-                  <Empty title="No earlier versions yet." icon="history">
-                    The app keeps the previous note before each successful edit.
-                  </Empty>
-                )}
-              </>
-            )}
-          </>
-        )}
+              {!s.projects.some((p) => p.archived) && (
+                <Empty title="No archived projects.">
+                  Archive a project from its ⋯ menu when the work is over.
+                </Empty>
+              )}
+            </>
+          )}
+          {view === "diagnostics" && (
+            <>
+              <Banner title="Vault status" kind={s.diagnostics.length ? "warning" : "success"}>
+                {s.diagnostics.length
+                  ? `${s.diagnostics.length} notes need attention. Their files are preserved.`
+                  : `${open.length} open tasks, ${s.tasks.filter((t) => t.status === "done" && !t.trashed).length} completed and ${s.tasks.filter((t) => t.trashed).length} in Trash.`}
+              </Banner>
+              {s.diagnostics.map((d) => (
+                <div className="list-row" key={d.id}>
+                  <div className="list-text">
+                    <strong>{d.path}</strong>
+                    <p className="muted">{d.message}</p>
+                  </div>
+                  {d.adoptable && (
+                    <Button
+                      kind="secondary"
+                      onClick={() =>
+                        void call("adopt", { id: d.id, revision: d.revision })
+                          .then(() => {
+                            void load();
+                            notice("Task note adopted");
+                          })
+                          .catch((e) => notice(errorMessage(e)))
+                      }
+                    >
+                      Adopt note
+                    </Button>
+                  )}
+                </div>
+              ))}
+              <Button kind="secondary" icon="refresh" onClick={() => void load()}>
+                Rescan vault
+              </Button>
+            </>
+          )}
+          {view === "import" && (
+            <ImportPage
+              onImported={() => {
+                void load();
+                go("tasks");
+                notice("Task notes imported");
+              }}
+            />
+          )}
+          {view === "history" && (
+            <>
+              <Field label="Task">
+                <select value={historyTask} onChange={(e) => void history(e.target.value)}>
+                  <option value="">Choose a task</option>
+                  {s.tasks.map((t) => (
+                    <option key={t.id} value={t.id}>
+                      {t.title}
+                    </option>
+                  ))}
+                </select>
+              </Field>
+              {versions.map((v) => (
+                <div className="list-row" key={v.id}>
+                  <div className="list-text">
+                    <strong>{v.title}</strong>
+                    <p className="muted">{new Date(v.savedAt).toLocaleString()}</p>
+                  </div>
+                  <Button
+                    kind="secondary"
+                    onClick={() => {
+                      const task = s.tasks.find((t) => t.id === historyTask);
+                      if (task) setRestore({ task, version: v });
+                    }}
+                  >
+                    Review
+                  </Button>
+                </div>
+              ))}
+              {historyTask && !versions.length && (
+                <Empty title="No earlier versions yet.">
+                  Todo keeps the previous note before each successful edit.
+                </Empty>
+              )}
+            </>
+          )}
+        </div>
       </main>
       <nav className="mobile-nav" aria-label="Main navigation">
-        {(["today", "inbox", "upcoming", "more"] as View[]).map((v) => (
+        {(
+          [
+            ["tasks", "Tasks", "circle"],
+            ["done", "Done", "circle-check"],
+          ] as const
+        ).map(([v, label, icon]) => (
           <button
             key={v}
-            aria-current={
-              view === v ||
-              (v === "more" && !["today", "inbox", "upcoming"].includes(view))
-                ? "page"
-                : undefined
-            }
-            className={
-              view === v ||
-              (v === "more" &&
-                [
-                  "settings",
-                  "projects",
-                  "search",
-                  "help",
-                  "completed",
-                  "trash",
-                  "diagnostics",
-                  "history",
-                  "archived",
-                  "import",
-                ].includes(view))
-                ? "selected"
-                : ""
-            }
-            onClick={() => navigate(v)}
+            aria-current={view === v && !more ? "page" : undefined}
+            onClick={() => go(v)}
           >
-            {titles[v]}
+            <Icon name={icon} size={18} />
+            {label}
           </button>
         ))}
+        <button onClick={() => setFind(true)}>
+          <Icon name="search" size={18} />
+          Search
+        </button>
+        <button
+          aria-current={more || !["tasks", "done"].includes(view) ? "page" : undefined}
+          aria-expanded={more}
+          onClick={() => setMore(!more)}
+        >
+          <Icon name="menu" size={18} />
+          More
+        </button>
       </nav>
-      {toast && (
-        <div className="toast">
-          <span role="status">{toast.text}</span>
-          {toast.undo && (
-            <Button
-              kind="ghost"
-              onClick={() =>
-                void toast.undo!().catch((e) => notice(errorMessage(e)))
-              }
-            >
-              Undo
-            </Button>
-          )}
-          <button
-            className="icon-button"
-            aria-label="Dismiss notification"
-            onClick={() => setToast(null)}
-          >
-            <Icon name="x" />
-          </button>
+      {more && (
+        <div className="sheet-scrim" onClick={() => setMore(false)}>
+          <div className="sheet" onClick={(e) => e.stopPropagation()}>
+            <div className="side-heading">
+              <span>Projects</span>
+            </div>
+            {projectLinks}
+            <hr />
+            {navButton("trash", "Trash", "trash")}
+            {navButton("settings", "Settings", "settings")}
+            <button className="nav-item" onClick={openMini}>
+              <Icon name="device-desktop" />
+              <span>Mini Today</span>
+            </button>
+          </div>
         </div>
       )}
-      {modal?.type === "add" && (
-        <Composer
-          snapshot={s}
-          defaultProject={view === "project" ? projectId : null}
-          onClose={() => setModal(null)}
-          onCreated={(task) => {
-            applyTask(task);
-            setModal(null);
-            notice(
-              "Task saved to " +
-                (task.status === "inbox" ? "Inbox" : "your vault") +
-                ".",
-            );
-          }}
-        />
-      )}
-      {modal?.type === "project" && (
-        <NewProject
-          onClose={() => setModal(null)}
-          onCreated={(p) => {
-            void load();
-            setModal(null);
-            navigate("project", p.id);
-            notice("Project created.");
-          }}
-        />
-      )}
-      {modal?.type === "rename" && modal.task && (
-        <Rename
-          task={modal.task}
-          onClose={() => setModal(null)}
-          onSave={(title) =>
-            void mutate(modal.task!, { title }, "Task renamed.").then(
-              (result) => {
-                if (result) setModal(null);
-              },
-            )
-          }
-        />
-      )}
-      {modal?.type === "actions" && modal.task && (
-        <Modal title="Task actions" onClose={() => setModal(null)}>
-          <div className="action-menu">
-            <Button
-              kind="ghost"
+      {toast && (
+        <div className="toast" key={toast.id} role="status">
+          <span>{toast.text}</span>
+          {toast.undo && (
+            <button
               onClick={() => {
-                setSelected(modal.task!);
-                setModal(null);
+                const undo = toast.undo!;
+                setToast(null);
+                void undo().catch((e) => notice(errorMessage(e)));
               }}
             >
-              Open details
-            </Button>
-            <Button
-              kind="ghost"
-              onClick={() => setModal({ type: "rename", task: modal.task })}
-            >
-              Rename task
-            </Button>
-            <Button
-              kind="ghost"
-              onClick={() => {
-                setSelected(modal.task!);
-                setModal(null);
-              }}
-            >
-              Plan for / deadline / project
-            </Button>
-            <Button
-              kind="ghost"
-              onClick={() =>
-                void mutate(modal.task!, { focus: !modal.task!.focus }).then(
-                  () => setModal(null),
-                )
-              }
-            >
-              {modal.task.focus ? "Remove from focus" : "Mark as focus"}
-            </Button>
-            {modal.task.status === "inbox" && (
-              <Button
-                kind="ghost"
-                onClick={() =>
-                  void mutate(
-                    modal.task!,
-                    { status: "todo" },
-                    "Task marked ready.",
-                  ).then(() => setModal(null))
-                }
-              >
-                Mark ready
-              </Button>
-            )}
-            <Button
-              kind="ghost"
-              onClick={() => {
-                void history(modal.task!.id);
-                setModal(null);
-              }}
-            >
-              View earlier versions
-            </Button>
-            <Button
-              kind={modal.task.trashed ? "secondary" : "danger"}
-              onClick={() =>
-                void mutate(
-                  modal.task!,
-                  { trashed: !modal.task!.trashed },
-                  modal.task!.trashed
-                    ? "Task restored."
-                    : "Task moved to Trash.",
-                ).then(() => {
-                  setModal(null);
-                  setSelected(null);
-                })
-              }
-            >
-              {modal.task.trashed ? "Restore task" : "Move to Trash"}
-            </Button>
-          </div>
-        </Modal>
+              Undo
+            </button>
+          )}
+        </div>
       )}
-      {modal?.type === "archive" && modal.project && (
-        <Modal
-          title={`${modal.project.archived ? "Restore" : "Archive"} ${modal.project.title}?`}
-          onClose={() => setModal(null)}
-        >
+      {rowMenu && (
+        <Popover anchor={rowMenu.anchor} onClose={() => setRowMenu(null)} label="Task actions" width={220}>
+          <MenuItem
+            icon="copy"
+            hint="C"
+            onSelect={() => {
+              copyName(rowMenu.task);
+              setRowMenu(null);
+            }}
+          >
+            Copy name
+          </MenuItem>
+          <MenuItem
+            icon="obsidian"
+            onSelect={() => {
+              openObsidian(rowMenu.task.path);
+              setRowMenu(null);
+            }}
+          >
+            Open in Obsidian
+          </MenuItem>
+          <MenuItem
+            icon="history"
+            onSelect={() => {
+              void history(rowMenu.task.id);
+              setRowMenu(null);
+            }}
+          >
+            Earlier versions
+          </MenuItem>
+          <MenuItem
+            icon="trash"
+            danger
+            onSelect={() => {
+              const task = rowMenu.task;
+              setRowMenu(null);
+              if (openId === task.id) setOpenId(null);
+              void mutate(task, { trashed: true }, "Moved to Trash");
+            }}
+          >
+            Move to Trash
+          </MenuItem>
+        </Popover>
+      )}
+      {projectMenu?.kind === "new" && (
+        <Popover anchor={projectMenu.anchor} onClose={() => setProjectMenu(null)} label="New project" width={240}>
+          <NewProjectInput
+            onCreated={(p) => {
+              addProject(p);
+              setProjectMenu(null);
+              go("tasks", p.id);
+            }}
+            onError={notice}
+          />
+          <p className="menu-hint">For a repository, use its folder name.</p>
+        </Popover>
+      )}
+      {projectMenu?.kind === "project" && project && (
+        <Popover anchor={projectMenu.anchor} onClose={() => setProjectMenu(null)} label="Project actions" width={220}>
+          <MenuItem
+            icon="obsidian"
+            onSelect={() => {
+              openObsidian(project.path);
+              setProjectMenu(null);
+            }}
+          >
+            Open in Obsidian
+          </MenuItem>
+          <MenuItem
+            icon="archive"
+            onSelect={() => {
+              setArchive(project);
+              setProjectMenu(null);
+            }}
+          >
+            Archive project
+          </MenuItem>
+        </Popover>
+      )}
+      {archive && (
+        <Modal title={`Archive ${archive.title}?`} onClose={() => setArchive(null)}>
           <p>
-            {modal.project.archived
-              ? "This project returns to the active list."
-              : "The project leaves the active list. Its tasks and notes stay in the vault. Dated tasks remain in Today and Upcoming."}
-          </p>
-          <p className="muted">
-            Restore archived projects from Projects → Archived.
+            The project leaves the sidebar. Its tasks and notes stay in the vault, and
+            open tasks still show in Tasks.
           </p>
           <div className="modal-actions">
-            <Button kind="secondary" onClick={() => setModal(null)}>
-              Cancel
-            </Button>
             <Button
               onClick={() =>
                 void call("updateProject", {
-                  id: modal.project!.id,
-                  revision: modal.project!.revision,
-                  patch: { archived: !modal.project!.archived },
+                  id: archive.id,
+                  revision: archive.revision,
+                  patch: { archived: true },
                 })
                   .then(() => {
-                    setModal(null);
+                    setArchive(null);
                     void load();
-                    navigate(modal.project!.archived ? "projects" : "archived");
-                    notice("Project updated.");
+                    go("tasks");
+                    notice("Project archived");
                   })
                   .catch((e) => notice(errorMessage(e)))
               }
             >
-              {modal.project.archived ? "Restore project" : "Archive project"}
+              Archive project
+            </Button>
+            <Button kind="secondary" onClick={() => setArchive(null)}>
+              Cancel
             </Button>
           </div>
         </Modal>
       )}
-      {modal?.type === "restore" && modal.task && modal.version && (
+      {restore && (
         <RestorePreview
-          task={modal.task}
-          version={modal.version}
-          onClose={() => setModal(null)}
+          task={restore.task}
+          version={restore.version}
+          onClose={() => setRestore(null)}
           onRestored={(task) => {
             applyTask(task);
-            setModal(null);
-            notice("Earlier version restored.");
+            setRestore(null);
+            notice("Earlier version restored");
             void history(task.id);
           }}
         />
       )}
+      {find && (
+        <Find
+          snapshot={s}
+          onClose={() => setFind(false)}
+          onTask={(task) => {
+            setFind(false);
+            openTask(task);
+          }}
+          onProject={(p) => {
+            setFind(false);
+            go("tasks", p.id);
+          }}
+        />
+      )}
+      {keysOpen && <KeyboardSheet onClose={() => setKeysOpen(false)} />}
     </div>
   );
 }
 
-export function addDays(date: string, amount: number) {
-  const d = new Date(date + "T12:00:00Z");
-  d.setUTCDate(d.getUTCDate() + amount);
-  return d.toISOString().slice(0, 10);
-}
-export function shortDate(date: string) {
-  return new Intl.DateTimeFormat("en-GB", {
-    day: "numeric",
-    month: "short",
-    timeZone: "UTC",
-  }).format(new Date(date + "T12:00:00Z"));
-}
-function Upcoming({
-  tasks,
-  today,
-  row,
+function ProjectHeader({
+  project,
+  mode,
+  onMode,
+  onSaved,
+  onError,
+  onMenu,
 }: {
-  tasks: Task[];
-  today: string;
-  row: (t: Task, meta?: string) => React.ReactNode;
+  project: Project;
+  mode: "tasks" | "done";
+  onMode: (mode: "tasks" | "done") => void;
+  onSaved: () => void;
+  onError: (message: string) => void;
+  onMenu: (anchor: HTMLElement) => void;
 }) {
-  const agenda = new Map<
-    string,
-    Map<string, { task: Task; planned: boolean; due: boolean }>
-  >();
-  for (const task of tasks)
-    for (const [kind, date] of [
-      ["planned", task.scheduled],
-      ["due", task.due],
-    ] as const) {
-      if (!date || date <= today) continue;
-      const items = agenda.get(date) ?? new Map();
-      const item = items.get(task.id) ?? { task, planned: false, due: false };
-      item[kind] = true;
-      items.set(task.id, item);
-      agenda.set(date, items);
-    }
+  const [title, setTitle] = useState(project.title);
+  const [editing, setEditing] = useState(false);
+  const [notes, setNotes] = useState(project.notes.trim());
+  useEffect(() => setTitle(project.title), [project.title]);
+  useEffect(() => {
+    if (!editing) setNotes(project.notes.trim());
+  }, [project.notes, editing]);
+  const save = (patch: { title?: string; notes?: string }) =>
+    call("updateProject", { id: project.id, revision: project.revision, patch })
+      .then(onSaved)
+      .catch((e) => onError(errorMessage(e)));
   return (
-    <>
-      <p className="agenda-explainer">
-        Plan dates and deadlines are shown separately. A deadline can appear
-        even when work was planned earlier.
-      </p>
-      {[...agenda]
-        .sort(([a], [b]) => a.localeCompare(b))
-        .map(([date, items]) => (
-          <section className="task-section" key={date}>
-            <h2>
-              {date === addDays(today, 1) ? "Tomorrow · " : ""}
-              {new Intl.DateTimeFormat("en-GB", {
-                weekday: "long",
-                day: "numeric",
-                month: "short",
-                timeZone: "UTC",
-              }).format(new Date(date + "T12:00:00Z"))}
-            </h2>
-            {[...items.values()].map(({ task, planned, due }) => (
-              <Fragment key={task.id}>
-                {row(
-                  task,
-                  planned && due
-                    ? "Plan & deadline"
-                    : due
-                      ? "Deadline " + shortDate(date)
-                      : "Plan for " + shortDate(date),
-                )}
-              </Fragment>
-            ))}
-          </section>
-        ))}
-      {!agenda.size && (
-        <Empty title="A little space ahead." icon="calendar-week">
-          Plan a task for a future date. Deadlines will also appear here.
-        </Empty>
+    <header className="page-header project">
+      <span className="swatch big" style={{ background: projectColor(project.id) }} />
+      <input
+        className="title-h1"
+        aria-label="Project name"
+        value={title}
+        maxLength={120}
+        onChange={(e) => setTitle(e.target.value)}
+        onBlur={() => title.trim() && title !== project.title && void save({ title: title.trim() })}
+        onKeyDown={(e) => e.key === "Enter" && e.currentTarget.blur()}
+      />
+      <span className="header-tools">
+        <span className="segmented" role="radiogroup" aria-label="Show">
+          {(
+            [
+              ["tasks", "Open"],
+              ["done", "Done"],
+            ] as const
+          ).map(([value, label]) => (
+            <button
+              key={value}
+              type="button"
+              role="radio"
+              aria-checked={mode === value}
+              onClick={() => onMode(value)}
+            >
+              {label}
+            </button>
+          ))}
+        </span>
+        <button className="icon-button" aria-label="Project actions" onClick={(e) => onMenu(e.currentTarget)}>
+          <Icon name="dots" />
+        </button>
+      </span>
+      {editing ? (
+        <textarea
+          className="project-notes"
+          aria-label="Project description"
+          autoFocus
+          rows={Math.min(8, Math.max(2, notes.split("\n").length))}
+          value={notes}
+          onChange={(e) => setNotes(e.target.value)}
+          onBlur={() => {
+            setEditing(false);
+            if (notes !== project.notes.trim()) void save({ notes: notes ? "\n" + notes + "\n" : "" });
+          }}
+          onKeyDown={(e) => e.key === "Escape" && e.currentTarget.blur()}
+        />
+      ) : (
+        <button className="sub description" onClick={() => setEditing(true)}>
+          {project.notes.trim().split(/\n\s*\n/)[0] || "Add a description — what belongs here?"}
+        </button>
       )}
-    </>
+    </header>
   );
 }
+
 function StartScreen({
   onSession,
   initialError,
@@ -1637,15 +1216,11 @@ function StartScreen({
   return (
     <main className="start-page">
       <div className="start-card">
-        <div className="wordmark">
-          <Icon name="leaf" size={28} tone="brand" />
-          <span>Todo</span>
-        </div>
+        <span className="mark large">
+          <Icon name="check" size={22} />
+        </span>
         <h1>Welcome back</h1>
-        <p>
-          Sign in to your self-hosted workspace. Your tasks live in its Obsidian
-          vault.
-        </p>
+        <p className="muted">Sign in to your workspace. You'll stay signed in for a week.</p>
         {error && (
           <Banner title="Could not sign in" kind="danger">
             {error}
@@ -1680,271 +1255,19 @@ function StartScreen({
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               required
+              autoFocus
             />
           </Field>
           <Button disabled={busy}>{busy ? "Signing in…" : "Sign in"}</Button>
           <p className="signin-help">
-            For a new setup, your initial login is saved in the server’s private
-            state folder.
+            For a new setup, your initial login is saved in the server's private state folder.
           </p>
         </form>
       </div>
     </main>
   );
 }
-function Composer({
-  snapshot,
-  defaultProject,
-  onClose,
-  onCreated,
-}: {
-  snapshot: Snapshot;
-  defaultProject: string | null;
-  onClose: () => void;
-  onCreated: (t: Task) => void;
-}) {
-  const key = "todo:composer:" + snapshot.vaultKey;
-  const [draft, setDraft] = useState(() =>
-    loadJSON(key, {
-      requestId: crypto.randomUUID(),
-      title: "",
-      scheduled: "",
-      due: "",
-      reminder: null as string | null,
-      repeat: null as TaskPatch["repeat"],
-      projectId: defaultProject ?? "",
-      notes: "",
-    }),
-  );
-  const [error, setError] = useState("");
-  const [busy, setBusy] = useState(false);
-  useEffect(() => {
-    if (
-      draft.title ||
-      draft.notes ||
-      draft.scheduled ||
-      draft.due ||
-      draft.reminder ||
-      draft.repeat
-    )
-      setDraftOnDevice(writeStored(key, JSON.stringify(draft)));
-  }, [draft, key]);
-  const [draftOnDevice, setDraftOnDevice] = useState(true);
-  return (
-    <Modal
-      title="Add task"
-      onClose={() => {
-        if (!busy) onClose();
-      }}
-      closeDisabled={busy}
-    >
-      {!draftOnDevice && (
-        <Banner title="Draft storage is unavailable">
-          Keep this page open until saved, or copy your notes before closing.
-        </Banner>
-      )}
-      <form
-        onSubmit={async (e) => {
-          e.preventDefault();
-          if (!draft.title.trim()) {
-            setError("Enter a task name.");
-            return;
-          }
-          setBusy(true);
-          setError("");
-          try {
-            const task = await call<Task>("createTask", {
-              ...draft,
-              scheduled: draft.scheduled || null,
-              due: draft.due || null,
-              projectId: draft.projectId || null,
-            });
-            removeStored(key);
-            onCreated(task);
-          } catch (e) {
-            setError(errorMessage(e));
-          } finally {
-            setBusy(false);
-          }
-        }}
-      >
-        <fieldset className="composer-fields" disabled={busy}>
-          <Field label="Task name">
-            <input
-              autoFocus
-              value={draft.title}
-              maxLength={240}
-              aria-invalid={!!error && !draft.title.trim()}
-              onChange={(e) => {
-                setDraft({ ...draft, title: e.target.value });
-                setError("");
-              }}
-            />
-          </Field>
-          <Field label="Plan for">
-            <DateControl
-              value={draft.scheduled || null}
-              today={snapshot.today}
-              weekStartsOn={snapshot.preferences.weekStartsOn}
-              onChange={(value) =>
-                setDraft({ ...draft, scheduled: value ?? "" })
-              }
-            />
-          </Field>
-          <Field label="Deadline">
-            <DateControl
-              kind="deadline"
-              value={draft.due || null}
-              today={snapshot.today}
-              weekStartsOn={snapshot.preferences.weekStartsOn}
-              onChange={(value) => setDraft({ ...draft, due: value ?? "" })}
-            />
-          </Field>
-          <Field label="Project">
-            <select
-              value={draft.projectId}
-              onChange={(e) =>
-                setDraft({ ...draft, projectId: e.target.value })
-              }
-            >
-              <option value="">No project</option>
-              {snapshot.projects
-                .filter((p) => !p.archived)
-                .map((p) => (
-                  <option key={p.id} value={p.id}>
-                    {p.title}
-                  </option>
-                ))}
-            </select>
-          </Field>
-          <Field label="Notes (optional)">
-            <textarea
-              rows={2}
-              value={draft.notes}
-              onChange={(e) => setDraft({ ...draft, notes: e.target.value })}
-            />
-          </Field>
-          <ScheduleFields
-            reminder={draft.reminder ?? null}
-            repeat={draft.repeat ?? null}
-            timezone={snapshot.preferences.timezone}
-            disabled={busy}
-            onChange={(patch) => setDraft({ ...draft, ...patch })}
-          />
-          {draft.scheduled && draft.due && draft.scheduled > draft.due && (
-            <p className="date-warning">
-              This planned date is after the deadline. The deadline stays
-              unchanged.
-            </p>
-          )}
-          <p className="muted">
-            Only the title is required. Unplanned tasks go to Inbox.
-          </p>
-          {error && (
-            <p className="form-error" role="alert">
-              {error}
-            </p>
-          )}
-          <div className="modal-actions">
-            <Button kind="secondary" type="button" onClick={onClose}>
-              Keep draft
-            </Button>
-            <Button disabled={busy}>{busy ? "Saving…" : "Save task"}</Button>
-          </div>
-        </fieldset>
-      </form>
-    </Modal>
-  );
-}
-function NewProject({
-  onClose,
-  onCreated,
-}: {
-  onClose: () => void;
-  onCreated: (p: Project) => void;
-}) {
-  const [title, setTitle] = useState("");
-  const [notes, setNotes] = useState("");
-  const [error, setError] = useState("");
-  const [busy, setBusy] = useState(false);
-  const id = useRef(crypto.randomUUID());
-  return (
-    <Modal title="New project" onClose={onClose}>
-      <form
-        onSubmit={async (e) => {
-          e.preventDefault();
-          setBusy(true);
-          try {
-            onCreated(
-              await call<Project>("createProject", {
-                requestId: id.current,
-                title,
-                notes,
-              }),
-            );
-          } catch (e) {
-            setError(errorMessage(e));
-          } finally {
-            setBusy(false);
-          }
-        }}
-      >
-        <Field label="Project name">
-          <input
-            value={title}
-            onChange={(e) => setTitle(e.target.value)}
-            required
-            maxLength={120}
-          />
-        </Field>
-        <Field label="Short description">
-          <textarea
-            rows={3}
-            value={notes}
-            onChange={(e) => setNotes(e.target.value)}
-          />
-        </Field>
-        {error && (
-          <p className="form-error" role="alert">
-            {error}
-          </p>
-        )}
-        <Button disabled={busy || !title.trim()}>Create project</Button>
-      </form>
-    </Modal>
-  );
-}
-function Rename({
-  task,
-  onClose,
-  onSave,
-}: {
-  task: Task;
-  onClose: () => void;
-  onSave: (title: string) => void;
-}) {
-  const [title, setTitle] = useState(task.title);
-  return (
-    <Modal title="Rename task" onClose={onClose}>
-      <form
-        onSubmit={(e) => {
-          e.preventDefault();
-          if (title.trim()) onSave(title.trim());
-        }}
-      >
-        <Field label="Task name">
-          <input
-            value={title}
-            onChange={(e) => setTitle(e.target.value)}
-            required
-            maxLength={240}
-          />
-        </Field>
-        <Button disabled={!title.trim()}>Save name</Button>
-      </form>
-    </Modal>
-  );
-}
+
 function RestorePreview({
   task,
   version,
@@ -2000,111 +1323,5 @@ function RestorePreview({
         </Button>
       </div>
     </Modal>
-  );
-}
-function ProjectNotes({
-  project,
-  onSaved,
-  onError,
-}: {
-  project: Project;
-  onSaved: () => void;
-  onError: (message: string) => void;
-}) {
-  const [editing, setEditing] = useState(false);
-  const [notes, setNotes] = useState(project.notes);
-  useEffect(() => {
-    if (!editing) setNotes(project.notes);
-  }, [project.notes, editing]);
-  return (
-    <section className="project-notes">
-      <h2>Project notes</h2>
-      {editing ? (
-        <>
-          <textarea
-            aria-label="Project notes"
-            rows={4}
-            value={notes}
-            onChange={(e) => setNotes(e.target.value)}
-          />
-          <Button
-            onClick={() =>
-              void call("updateProject", {
-                id: project.id,
-                revision: project.revision,
-                patch: { notes },
-              })
-                .then(() => {
-                  setEditing(false);
-                  onSaved();
-                })
-                .catch((e) => onError(errorMessage(e)))
-            }
-          >
-            Save project notes
-          </Button>
-          <Button kind="ghost" onClick={() => setEditing(false)}>
-            Cancel
-          </Button>
-        </>
-      ) : (
-        <button className="note-content" onClick={() => setEditing(true)}>
-          {project.notes.trim() || "Add context for this project…"}
-        </button>
-      )}
-    </section>
-  );
-}
-function Help() {
-  return (
-    <div className="help-page">
-      {[
-        [
-          "Mini Today",
-          "See what's left today in a small view. Complete tasks with Undo, or open a title in the full workspace. Install Mini as a separate Chrome app window for quick reference.",
-        ],
-        [
-          "Use Todo as a web app",
-          "In Chrome, choose menu → Cast, save, and share → Install page as app. Open Mini Today first to install Todo Mini separately. The same self-hosted sign-in is used. Keep the server running; offline writes are not queued.",
-        ],
-        [
-          "Capture without sorting",
-          "Add a title to Inbox. Plan it when you have more context.",
-        ],
-        [
-          "Plan for is not a deadline",
-          "Moving a planned date leaves the deadline unchanged.",
-        ],
-        [
-          "Unfinished tasks carry forward",
-          "With automatic rollover enabled, unfinished planned tasks move to today at midnight in your vault timezone, or when the server starts again. Deadlines stay fixed. The first planned date and carry-forward count stay in the Markdown note.",
-        ],
-        [
-          "Reminders and repeating tasks",
-          "Set a reminder in task details and keep Todo or Mini open. Overdue reminders stay visible until dismissed, snoozed or completed. Browser alerts are optional in Settings. Daily, weekly and monthly repeats create the next task when you complete this one; missed dates are skipped.",
-        ],
-        [
-          "Your notes stay yours",
-          "Each task is a Markdown note. Open the vault folder in Obsidian to read and edit it.",
-        ],
-        [
-          "When another editor changes a task",
-          "If a vault note changes while you edit, saving pauses and keeps your draft. Copy it if needed, then discard the draft to load the latest note.",
-        ],
-        [
-          "Keep a separate backup",
-          "Task versions do not replace an entire-vault backup. Back up your vault and state folders.",
-        ],
-        [
-          "Keyboard guide",
-          "Ctrl/Command+K opens search. N adds a task when you are not typing. Tab reaches controls, Enter activates them, and Escape closes dialogs. Turn single-key shortcuts off in Settings.",
-        ],
-      ].map(([title, text]) => (
-        <section key={title}>
-          <h2>{title}</h2>
-          <p>{text}</p>
-        </section>
-      ))}
-    </div>
   );
 }

@@ -4,15 +4,26 @@ import {
   removeStored,
   removeSavedDraft,
 } from "./storage";
-import { useEffect, useRef, useState, lazy, Suspense } from "react";
+import {
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+  lazy,
+  Suspense,
+  type ReactNode,
+} from "react";
 const MarkdownNote = lazy(() =>
   import("./MarkdownNote").then((m) => ({ default: m.MarkdownNote })),
 );
-import type { Task, TaskPatch, Snapshot } from "../core/model";
-import { Button, Icon, errorMessage } from "./components";
+import type { Task, TaskPatch, Snapshot, Project } from "../core/model";
+import { Button, Icon, copyText, errorMessage } from "./components";
 import { ClientError, call } from "./client";
-import { DateControl } from "./DateControl";
+import { DatePicker, dateLabel } from "./DateControl";
 import { ScheduleFields } from "./ScheduleFields";
+import { Popover, MenuItem } from "./Popover";
+import { projectColor } from "./project-color";
+import { NewProjectInput } from "./TaskList";
 function restored(key: string) {
   try {
     return JSON.parse(readStored(key) ?? "null");
@@ -28,20 +39,43 @@ function changes(draft: TaskPatch, base: TaskPatch): TaskPatch {
     ),
   ) as TaskPatch;
 }
+type Menu = "project" | "date" | "deadline" | "add" | "labels" | null;
+/** What the list and keyboard can ask the open card to do. */
+export type CardActions = {
+  toggle: () => void;
+  openMenu: (kind: "project" | "date") => void;
+};
+
+/**
+ * The open task: title, properties, notes and Complete. Autosaves drafts,
+ * keeps them on this device, and pauses on an external edit (Copy / Discard).
+ */
 export function TaskEditor({
   task,
   snapshot,
   onSaved,
   onState,
   onClose,
-  onObsidian,
+  onComplete,
+  onProjectCreated,
+  leading,
+  trailing,
+  editNotes = false,
+  initialMenu = null,
+  actionsRef,
 }: {
   task: Task;
   snapshot: Snapshot;
   onSaved: (task: Task) => void;
   onState: (state: string) => void;
   onClose: () => void;
-  onObsidian: (task: Task) => void;
+  onComplete: (task: Task) => void;
+  onProjectCreated: (project: Project) => void;
+  leading: (complete: () => void) => ReactNode;
+  trailing: ReactNode;
+  editNotes?: boolean;
+  initialMenu?: "project" | "date" | null;
+  actionsRef?: React.MutableRefObject<CardActions | null>;
 }) {
   const key = `todo:editor:${snapshot.vaultKey}:${task.id}`;
   const initial = () => {
@@ -53,9 +87,8 @@ export function TaskEditor({
     }
   };
   const [draft, setDraft] = useState<TaskPatch>(initial);
-  const [more, setMore] = useState(false);
   const [tagsText, setTagsText] = useState((initial().tags ?? []).join(", "));
-  const [editing, setEditing] = useState(false);
+  const [editing, setEditing] = useState(editNotes);
   const [status, setStatus] = useState(
     readStored(key) ? "Draft restored" : "Saved",
   );
@@ -63,7 +96,10 @@ export function TaskEditor({
   const [stale, setStale] = useState(false);
   const [reloading, setReloading] = useState(false);
   const [draftOnDevice, setDraftOnDevice] = useState(true);
-  const [checklist, setChecklist] = useState("");
+  const [menu, setMenu] = useState<{ kind: Menu; anchor: HTMLElement } | null>(
+    null,
+  );
+  const [schedule, setSchedule] = useState(!!(task.reminder || task.repeat));
   const draftRef = useRef(draft);
   draftRef.current = draft;
   const revision = useRef(restored(key)?.revision ?? task.revision);
@@ -72,10 +108,12 @@ export function TaskEditor({
   const followup = useRef<ReturnType<typeof setTimeout> | null>(null);
   const paused = useRef(false);
   const mounted = useRef(true);
-  const phoneHeading = useRef<HTMLHeadingElement>(null);
-  useEffect(() => {
-    if (matchMedia("(max-width: 720px)").matches) phoneHeading.current?.focus();
-  }, []);
+  const notesRef = useRef<HTMLTextAreaElement>(null);
+  const titleRef = useRef<HTMLTextAreaElement>(null);
+  const projectChip = useRef<HTMLButtonElement>(null);
+  const dateChip = useRef<HTMLButtonElement>(null);
+  // Obsidian-style notes start with a blank line; keep it out of the editor.
+  const lead = useRef("");
   const callbacks = useRef({ onSaved, onState });
   callbacks.current = { onSaved, onState };
   function change(patch: TaskPatch) {
@@ -143,11 +181,10 @@ export function TaskEditor({
       busy.current = false;
       if (
         success &&
-        mounted.current &&
         !paused.current &&
         JSON.stringify(draftRef.current) !== saved.current
       )
-        followup.current = setTimeout(() => void save(), 100);
+        followup.current = setTimeout(() => void save(), mounted.current ? 100 : 0);
       if (
         mounted.current &&
         JSON.stringify(draftRef.current) !== saved.current &&
@@ -158,11 +195,43 @@ export function TaskEditor({
         setStatus((s) => (s === "Saving…" ? "Unsaved draft" : s));
     }
   }
+  /** Save anything pending, then hand the task to the list's Complete animation. */
+  async function finish() {
+    while (busy.current) await new Promise((r) => setTimeout(r, 40));
+    await save(true);
+    if (paused.current || JSON.stringify(draftRef.current) !== saved.current)
+      return;
+    onComplete({ ...task, revision: revision.current });
+  }
+  function toggle() {
+    if (draftRef.current.status !== "done") return void finish();
+    change({ status: task.previousStatus });
+    void save(true);
+  }
+  const openMenu = (kind: "project" | "date") => {
+    const anchor = (kind === "project" ? projectChip : dateChip).current;
+    if (anchor) setMenu({ kind, anchor });
+  };
+  // Register what the list and keyboard can ask of this card, after every render.
+  useLayoutEffect(() => {
+    if (!actionsRef) return;
+    const actions = { toggle, openMenu };
+    actionsRef.current = actions;
+    return () => {
+      if (actionsRef.current === actions) actionsRef.current = null;
+    };
+  });
+  useEffect(() => {
+    if (initialMenu) openMenu(initialMenu);
+  }, []);
   useEffect(() => {
     mounted.current = true;
     return () => {
       mounted.current = false;
       if (followup.current) clearTimeout(followup.current);
+      // Closing or switching cards still saves; the draft stays as a backup.
+      if (JSON.stringify(draftRef.current) !== saved.current && !paused.current)
+        void save();
       if (JSON.stringify(draftRef.current) !== saved.current)
         writeStored(
           key,
@@ -194,6 +263,30 @@ export function TaskEditor({
     const timer = setTimeout(() => void save(), 800);
     return () => clearTimeout(timer);
   }, [draft]);
+  // Long titles wrap instead of being cut off.
+  useLayoutEffect(() => {
+    const area = titleRef.current;
+    if (!area) return;
+    area.style.height = "auto";
+    area.style.height = area.scrollHeight + "px";
+  }, [draft.title]);
+  // The notes box grows with its content while you type.
+  useLayoutEffect(() => {
+    const area = notesRef.current;
+    if (!area) return;
+    area.style.height = "auto";
+    area.style.height = Math.max(96, area.scrollHeight + 2) + "px";
+  }, [editing, draft.notes]);
+  if (!editing) lead.current = (draft.notes ?? "").startsWith("\n") ? "\n" : "";
+  useEffect(() => {
+    if (!editing) return;
+    const area = notesRef.current;
+    area?.focus();
+    area?.setSelectionRange(area.value.length, area.value.length);
+  }, [editing]);
+  useEffect(() => {
+    if (editNotes) setEditing(true);
+  }, [editNotes]);
   function pauseSaving() {
     paused.current = true;
     if (mounted.current) {
@@ -240,15 +333,12 @@ export function TaskEditor({
       value.notes ?? "",
       `Plan for: ${value.scheduled ?? "None"}`,
       `Deadline: ${value.due ?? "None"}`,
-      `Reminder: ${value.reminder ?? "None"}`,
-      `Repeat: ${value.repeat ? `Every ${value.repeat.interval} ${value.repeat.frequency}` : "None"}`,
       `Project: ${snapshot.projects.find((project) => project.id === value.projectId)?.title ?? "None"}`,
       `Labels: ${(value.tags ?? []).join(", ") || "None"}`,
-      `Focus: ${value.focus ? "Yes" : "No"}`,
       `Status: ${value.status}`,
     ].join("\n\n");
     try {
-      await navigator.clipboard.writeText(text);
+      await copyText(text);
       setStatus("Draft copied");
     } catch {
       setEditing(true);
@@ -257,203 +347,357 @@ export function TaskEditor({
       );
     }
   }
-  const lines = (draft.notes ?? "").split("\n");
+  // Giving an Inbox task a date or project marks it ready, as before.
+  const inboxReady = () =>
+    task.status === "inbox" ? "todo" : (draftRef.current.status ?? task.status);
+  const open = (kind: Menu) => (e: { currentTarget: HTMLElement }) =>
+    setMenu(menu?.kind === kind ? null : { kind, anchor: e.currentTarget });
+  const project = snapshot.projects.find((p) => p.id === draft.projectId);
+  const done = draft.status === "done";
+  const today = snapshot.today;
+  const overdue = !!draft.due && draft.due < today && !done;
+  const weekStartsOn = snapshot.preferences.weekStartsOn;
   return (
     <section
-      className={"task-editor" + (more ? " extra-open" : "")}
+      className={"task-card" + (done ? " is-done" : "")}
       aria-label={"Details for " + task.title}
+      onKeyDown={(e) => {
+        if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
+          e.preventDefault();
+          e.stopPropagation();
+          if (!done) void finish();
+        }
+      }}
     >
-      {!draftOnDevice && (
-        <p role="alert" className="warning-text">
-          This device cannot keep a draft. Keep this page open until saved, or
-          copy your notes.
-        </p>
-      )}
-      <div className="phone-task-heading">
-        <h1 ref={phoneHeading} tabIndex={-1}>
-          Task
-        </h1>
-        <button
-          className="icon-button"
-          onClick={onClose}
-          aria-label="Back to tasks"
-        >
-          <Icon name="arrow-left" />
-        </button>
+      <div className="card-head">
+        {leading(() => toggle())}
+        <textarea
+          ref={titleRef}
+          className="title-input"
+          aria-label="Task name"
+          rows={1}
+          maxLength={240}
+          value={draft.title ?? ""}
+          onChange={(e) => change({ title: e.target.value.replace(/\n/g, " ") })}
+          onBlur={() => void save()}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") {
+              e.preventDefault();
+              void save();
+              setEditing(true);
+            } else if (e.key === "Escape") {
+              e.preventDefault();
+              e.stopPropagation();
+              void save();
+              onClose();
+            }
+          }}
+        />
+        {trailing}
       </div>
-      <input
-        className="task-title-edit"
-        aria-label="Task name"
-        value={draft.title ?? ""}
-        onChange={(e) => change({ title: e.target.value })}
-        onBlur={() => void save()}
-      />
-      <div className="phone-task-meta muted">
-        {snapshot.projects.find((p) => p.id === task.projectId)?.title}
-        {task.due
-          ? ` · due ${task.due === snapshot.today ? "today" : task.due === new Date(Date.parse(snapshot.today + "T12:00:00Z") + 86400000).toISOString().slice(0, 10) ? "tomorrow" : new Intl.DateTimeFormat("en-GB", { day: "numeric", month: "short", timeZone: "UTC" }).format(new Date(task.due + "T12:00:00Z"))}`
-          : null}
-      </div>
-      <div className="editor-notes">
-        {editing ? (
-          <>
-            <textarea
-              aria-label="Task notes in Markdown"
-              value={draft.notes ?? ""}
-              placeholder="Add notes in Markdown…"
-              onChange={(e) => change({ notes: e.target.value })}
-              rows={Math.max(3, Math.min(10, lines.length))}
+      <div className="card-body">
+        {!draftOnDevice && (
+          <p role="alert" className="warning-text">
+            This device cannot keep a draft. Keep this page open until saved,
+            or copy your notes.
+          </p>
+        )}
+        <div className="props">
+          <button
+            ref={projectChip}
+            type="button"
+            className="prop"
+            onClick={open("project")}
+          >
+            {project ? (
+              <span
+                className="swatch"
+                style={{ background: projectColor(project.id) }}
+              />
+            ) : (
+              <Icon name="folder" size={14} />
+            )}
+            {project?.title ?? "No project"}
+          </button>
+          <button
+            ref={dateChip}
+            type="button"
+            className={"prop" + (draft.scheduled ? "" : " unset")}
+            onClick={open("date")}
+          >
+            <Icon name="calendar-week" size={14} />
+            {draft.scheduled ? dateLabel(draft.scheduled, today) : "No date"}
+          </button>
+          {draft.due && (
+            <span className={"prop" + (overdue ? " warn" : "")}>
+              <button type="button" onClick={open("deadline")}>
+                <Icon name="flag" size={14} />
+                Due {dateLabel(draft.due, today)}
+              </button>
+              <button
+                type="button"
+                className="prop-clear"
+                aria-label="Remove deadline"
+                onClick={() => change({ due: null })}
+              >
+                <Icon name="x" size={12} />
+              </button>
+            </span>
+          )}
+          {!!draft.tags?.length && (
+            <button type="button" className="prop" onClick={open("labels")}>
+              <Icon name="tag" size={14} />
+              {draft.tags.map((t) => "#" + t).join(" ")}
+            </button>
+          )}
+          {(draft.reminder || draft.repeat) && (
+            <button
+              type="button"
+              className="prop"
+              aria-expanded={schedule}
+              onClick={() => setSchedule(!schedule)}
+            >
+              <Icon name={draft.reminder ? "bell" : "repeat"} size={14} />
+              {draft.reminder && draft.repeat
+                ? "Reminder · repeats"
+                : draft.reminder
+                  ? "Reminder"
+                  : "Repeats " + draft.repeat!.frequency}
+            </button>
+          )}
+          <button
+            type="button"
+            className="prop ghost"
+            onClick={open("add")}
+            aria-label="Add deadline, labels, reminder or repeat"
+          >
+            <Icon name="plus" size={14} />
+            {draft.due || draft.tags?.length || draft.reminder || draft.repeat
+              ? ""
+              : "Deadline, label…"}
+          </button>
+        </div>
+        {schedule && (
+          <div className="schedule-panel">
+            <ScheduleFields
+              reminder={draft.reminder ?? null}
+              repeat={draft.repeat ?? null}
+              timezone={snapshot.preferences.timezone}
+              onChange={change}
             />
-            <Button
-              kind="ghost"
-              onClick={() => {
+          </div>
+        )}
+        {draft.scheduled && draft.due && draft.scheduled > draft.due && (
+          <p className="date-warning">
+            The planned date is after the deadline. Both dates are kept.
+          </p>
+        )}
+        <div
+          className={"notes" + (editing ? " editing" : "")}
+          onClick={(e) => {
+            if (editing) return;
+            if ((e.target as HTMLElement).closest("a,input,button,label")) return;
+            if (window.getSelection()?.toString()) return;
+            setEditing(true);
+          }}
+        >
+          {editing ? (
+            <textarea
+              ref={notesRef}
+              aria-label="Task notes in Markdown"
+              value={(draft.notes ?? "").slice(lead.current.length)}
+              placeholder="Context, progress, what was done… Markdown works."
+              onChange={(e) => change({ notes: lead.current + e.target.value })}
+              onBlur={() => {
                 setEditing(false);
                 void save();
               }}
-            >
-              Done editing notes
-            </Button>
-          </>
-        ) : (
-          <>
-            {draft.notes?.trim() ? (
-              <Suspense fallback={<p className="muted">Loading notes…</p>}>
-                <MarkdownNote
-                  body={draft.notes}
-                  onChange={(notes) => change({ notes })}
-                />
-              </Suspense>
-            ) : (
-              <span className="muted">Add a note…</span>
-            )}
-          </>
-        )}
-      </div>
-      {(more || editing) && (
-        <form
-          className="add-checklist"
-          onSubmit={(e) => {
-            e.preventDefault();
-            if (!checklist.trim()) return;
-            change({
-              notes:
-                (draft.notes ?? "").replace(/\s*$/, "") +
-                "\n- [ ] " +
-                checklist.trim() +
-                "\n",
-            });
-            setChecklist("");
-          }}
-        >
-          <input
-            aria-label="New checklist item"
-            placeholder="Add a checklist item…"
-            value={checklist}
-            onChange={(e) => setChecklist(e.target.value)}
-          />
-          <button
-            className="icon-button"
-            aria-label="Add checklist item"
-            disabled={!checklist.trim()}
-          >
-            <Icon name="plus" />
-          </button>
-        </form>
-      )}
-      <div className="editor-fields">
-        <label>
-          <span>Plan for</span>
-          <DateControl
-            value={draft.scheduled ?? null}
-            today={snapshot.today}
-            weekStartsOn={snapshot.preferences.weekStartsOn}
-            onChange={(value) =>
-              change({
-                scheduled: value,
-                status:
-                  task.status === "inbox" && value ? "todo" : draft.status,
-              })
-            }
-          />
-        </label>
-        <label>
-          <span>Deadline</span>
-          <DateControl
-            kind="deadline"
-            value={draft.due ?? null}
-            today={snapshot.today}
-            weekStartsOn={snapshot.preferences.weekStartsOn}
-            onChange={(value) =>
-              change({
-                due: value,
-                status:
-                  task.status === "inbox" && value ? "todo" : draft.status,
-              })
-            }
-          />
-        </label>
-        <label>
-          <span>Project</span>
-          <select
-            aria-label="Project"
-            value={draft.projectId ?? ""}
-            onChange={(e) =>
-              change({
-                projectId: e.target.value || null,
-                status:
-                  task.status === "inbox" && e.target.value
-                    ? "todo"
-                    : draft.status,
-              })
-            }
-          >
-            <option value="">No project</option>
-            {snapshot.projects
-              .filter((p) => !p.archived || p.id === task.projectId)
-              .map((p) => (
-                <option value={p.id} key={p.id}>
-                  {p.title}
-                  {p.archived ? " (archived)" : ""}
-                </option>
-              ))}
-          </select>
-        </label>
-      </div>
-      {draft.scheduled && draft.due && draft.scheduled > draft.due && (
-        <p className="date-warning">
-          This planned date is after the deadline. Both dates are kept as
-          entered.
-        </p>
-      )}
-      <ScheduleFields
-        reminder={draft.reminder ?? null}
-        repeat={draft.repeat ?? null}
-        timezone={snapshot.preferences.timezone}
-        onChange={change}
-      />
-      {!!task.rolloverCount && (
-        <p className="rollover-note muted">
-          Carried forward {task.rolloverCount}{" "}
-          {task.rolloverCount === 1 ? "time" : "times"}.
-          {task.originalScheduled
-            ? ` First planned for ${task.originalScheduled}.`
-            : ""}
-        </p>
-      )}
-      {more && (
-        <div className="editor-extra">
-          <label className="toggle-label">
-            <input
-              type="checkbox"
-              checked={draft.focus ?? false}
-              onChange={(e) => change({ focus: e.target.checked })}
+              onKeyDown={(e) => {
+                if (e.key === "Escape") {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  (e.target as HTMLTextAreaElement).blur();
+                }
+              }}
             />
-            Focus
-          </label>
-          <label className="tags-label">
-            <span>Labels</span>
+          ) : draft.notes?.trim() ? (
+            <Suspense fallback={<p className="muted">Loading notes…</p>}>
+              <MarkdownNote
+                body={draft.notes}
+                onChange={(notes) => change({ notes })}
+              />
+            </Suspense>
+          ) : (
+            <button
+              type="button"
+              className="notes-placeholder"
+              onClick={() => setEditing(true)}
+            >
+              Context, progress, what was done… Markdown works.
+            </button>
+          )}
+        </div>
+        {!!task.rolloverCount && (
+          <p className="rollover-note">
+            Carried forward {task.rolloverCount}{" "}
+            {task.rolloverCount === 1 ? "time" : "times"}
+            {task.originalScheduled
+              ? ` · first planned ${dateLabel(task.originalScheduled, today)}`
+              : ""}
+          </p>
+        )}
+        {error && (
+          <div className="save-error" role="alert">
+            <p>{error}</p>
+            <div>
+              {stale ? (
+                <Button
+                  kind="secondary"
+                  disabled={reloading}
+                  onClick={() => void reloadLatest()}
+                >
+                  {reloading ? "Loading latest…" : "Discard draft & reload"}
+                </Button>
+              ) : (
+                <Button kind="secondary" onClick={() => void save(true)}>
+                  Retry save
+                </Button>
+              )}
+              <Button kind="ghost" icon="copy" onClick={() => void copyDraft()}>
+                Copy draft
+              </Button>
+            </div>
+          </div>
+        )}
+        <div className="card-foot">
+          {task.trashed ? null : done ? (
+            <Button
+              kind="secondary"
+              icon="refresh"
+              onClick={() => {
+                change({ status: task.previousStatus });
+                void save(true);
+              }}
+            >
+              Reopen
+            </Button>
+          ) : (
+            <Button icon="check" onClick={() => void finish()}>
+              Complete <kbd>⌘↵</kbd>
+            </Button>
+          )}
+          <span
+            className={"save-state" + (status === "Saving…" ? " saving" : "")}
+            aria-live="polite"
+          >
+            <i />
+            {status === "Saved" ? "Saved" : status}
+          </span>
+        </div>
+      </div>
+      {menu?.kind === "project" && (
+        <Popover anchor={menu.anchor} onClose={() => setMenu(null)} label="Project" width={240}>
+          {snapshot.projects
+            .filter((p) => !p.archived || p.id === task.projectId)
+            .map((p) => (
+              <MenuItem
+                key={p.id}
+                swatch={projectColor(p.id)}
+                active={p.id === draft.projectId}
+                onSelect={() => {
+                  change({ projectId: p.id, status: inboxReady() });
+                  setMenu(null);
+                }}
+              >
+                {p.title}
+              </MenuItem>
+            ))}
+          {draft.projectId && (
+            <MenuItem
+              icon="x"
+              onSelect={() => {
+                change({ projectId: null });
+                setMenu(null);
+              }}
+            >
+              No project
+            </MenuItem>
+          )}
+          <NewProjectInput
+            onCreated={(p) => {
+              onProjectCreated(p);
+              setMenu(null);
+              change({ projectId: p.id, status: inboxReady() });
+            }}
+            onError={setError}
+          />
+        </Popover>
+      )}
+      {(menu?.kind === "date" || menu?.kind === "deadline") && (
+        <Popover
+          anchor={menu.anchor}
+          onClose={() => setMenu(null)}
+          label={menu.kind === "date" ? "Plan for" : "Deadline"}
+          width={252}
+        >
+          <DatePicker
+            value={(menu.kind === "date" ? draft.scheduled : draft.due) ?? null}
+            today={today}
+            weekStartsOn={weekStartsOn}
+            kind={menu.kind === "date" ? "plan" : "deadline"}
+            onPick={(value) => {
+              change(
+                menu.kind === "date"
+                  ? { scheduled: value, status: value ? inboxReady() : draft.status }
+                  : { due: value, status: value ? inboxReady() : draft.status },
+              );
+              setMenu(null);
+            }}
+          />
+        </Popover>
+      )}
+      {menu?.kind === "add" && (
+        <Popover anchor={menu.anchor} onClose={() => setMenu(null)} label="Add a property" width={220}>
+          {!draft.due && (
+            <MenuItem
+              icon="flag"
+              onSelect={() => setMenu({ kind: "deadline", anchor: menu.anchor })}
+            >
+              Deadline
+            </MenuItem>
+          )}
+          <MenuItem
+            icon="tag"
+            onSelect={() => setMenu({ kind: "labels", anchor: menu.anchor })}
+          >
+            Labels
+          </MenuItem>
+          {!schedule && (
+            <MenuItem
+              icon="bell"
+              onSelect={() => {
+                setSchedule(true);
+                setMenu(null);
+              }}
+            >
+              Reminder or repeat
+            </MenuItem>
+          )}
+        </Popover>
+      )}
+      {menu?.kind === "labels" && (
+        <Popover anchor={menu.anchor} onClose={() => setMenu(null)} label="Labels" width={260}>
+          <form
+            className="menu-input"
+            onSubmit={(e) => {
+              e.preventDefault();
+              setMenu(null);
+            }}
+          >
+            <Icon name="tag" />
             <input
-              aria-label="Task labels, separated by commas"
+              aria-label="Labels, separated by commas"
+              placeholder="design, review"
               value={tagsText}
               onChange={(e) => {
                 setTagsText(e.target.value);
@@ -464,61 +708,11 @@ export function TaskEditor({
                     .filter(Boolean),
                 });
               }}
-              placeholder="design, work"
             />
-          </label>
-        </div>
+          </form>
+          <p className="menu-hint">Separate labels with commas. ↵ to close.</p>
+        </Popover>
       )}
-      {error && (
-        <div className="save-error" role="alert">
-          <p>{error}</p>
-          {stale ? (
-            <Button
-              kind="secondary"
-              disabled={reloading}
-              onClick={() => void reloadLatest()}
-            >
-              {reloading ? "Loading latest…" : "Discard draft & reload"}
-            </Button>
-          ) : (
-            <Button kind="secondary" onClick={() => void save(true)}>
-              Retry save
-            </Button>
-          )}
-          <Button kind="ghost" onClick={() => void copyDraft()}>
-            Copy draft
-          </Button>
-        </div>
-      )}
-      <div className="editor-footer">
-        {!task.trashed && (
-          <Button
-            kind="secondary"
-            onClick={() => {
-              change({
-                status: draft.status === "done" ? task.previousStatus : "done",
-              });
-              void save(true);
-            }}
-          >
-            {draft.status === "done" ? "Reopen task" : "Complete task"}
-          </Button>
-        )}
-        <Button kind="ghost" icon="upload" onClick={() => onObsidian(task)}>
-          Open in Obsidian
-        </Button>
-        {!editing && (
-          <Button kind="ghost" onClick={() => setEditing(true)}>
-            Edit notes
-          </Button>
-        )}
-        <Button kind="ghost" onClick={() => setMore(!more)}>
-          {more ? "Fewer details" : "More details"}
-        </Button>
-        <span className="muted" aria-live="polite">
-          {status === "Saved" ? "Saved to vault" : status}
-        </span>
-      </div>
     </section>
   );
 }
