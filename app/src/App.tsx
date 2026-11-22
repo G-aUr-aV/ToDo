@@ -1,17 +1,18 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { readStored, writeStored } from "./storage";
+import { appearanceKey, applyAppearance, readAppearance, type Appearance } from "./appearance";
 import type { Task, Project, Snapshot, TaskPatch, Version } from "../core/model";
 import { active, inNow, isLater, byPriority } from "../core/task-views";
 import type { SessionInfo } from "../core/protocol";
 import { call, subscribe, ClientError } from "./client";
-import { Banner, Button, Empty, Field, Icon, Modal, copyText, errorMessage } from "./components";
+import { Banner, Button, Empty, Field, Icon, Modal, modifierKey, copyText, errorMessage } from "./components";
 import { TaskEditor, form, type CardActions } from "./Editor";
 import { Settings, ImportPage } from "./Settings";
 import { dateLabel } from "./DateControl";
 import { openMini } from "./mini-window";
 import { Reminders } from "./Reminders";
 import { TaskRow, QuickAdd, NewProjectInput, RichTitle } from "./TaskList";
-import { DoneView } from "./DoneView";
+import { DoneView, RecentCompletions } from "./DoneView";
 import { Find, KeyboardSheet } from "./Find";
 import { Popover, MenuItem } from "./Popover";
 import { projectColor } from "./project-color";
@@ -35,21 +36,6 @@ const titles: Record<View, string> = {
   import: "Import task notes",
   history: "Earlier versions",
 };
-type Appearance = {
-  theme: string;
-  density: string;
-  text: string;
-  shortcuts: boolean;
-  motion: string;
-};
-function loadJSON<T>(key: string, fallback: T): T {
-  try {
-    return JSON.parse(readStored(key) ?? "null") ?? fallback;
-  } catch {
-    return fallback;
-  }
-}
-const modifier = () => (/Mac/.test(navigator.platform) ? "⌘" : "Ctrl");
 const reducedMotion = () =>
   document.documentElement.dataset.motion === "reduced" ||
   matchMedia("(prefers-reduced-motion: reduce)").matches;
@@ -87,35 +73,16 @@ export default function App() {
   const [versions, setVersions] = useState<Version[]>([]);
   const [restore, setRestore] = useState<{ task: Task; version: Version } | null>(null);
   const [archive, setArchive] = useState<Project | null>(null);
-  const [appearance, setAppearance] = useState<Appearance>(() =>
-    loadJSON("todo:appearance", {
-      theme: "light",
-      density: "comfortable",
-      text: "default",
-      shortcuts: true,
-      motion: "system",
-    }),
-  );
+  const [appearance, setAppearance] = useState<Appearance>(readAppearance);
   const initialView = useRef(false);
   const snapshotRef = useRef(snapshot);
   snapshotRef.current = snapshot;
   const addInput = useRef<HTMLInputElement>(null);
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   useEffect(() => {
-    writeStored("todo:appearance", JSON.stringify(appearance));
+    writeStored(appearanceKey, JSON.stringify(appearance));
     const system = matchMedia("(prefers-color-scheme: dark)");
-    const apply = () => {
-      const root = document.documentElement;
-      root.dataset.theme =
-        appearance.theme === "system"
-          ? system.matches
-            ? "dark"
-            : "light"
-          : appearance.theme;
-      root.dataset.density = appearance.density;
-      root.dataset.text = appearance.text;
-      root.dataset.motion = appearance.motion;
-    };
+    const apply = () => applyAppearance(appearance);
     apply();
     system.addEventListener("change", apply);
     return () => system.removeEventListener("change", apply);
@@ -315,16 +282,17 @@ export default function App() {
   }
   function openTask(task: Task, notes = false) {
     const target: View = task.trashed ? "trash" : task.status === "done" ? "done" : "tasks";
+    const matchingProject = !task.trashed && task.projectId === filterProject ? filterProject : null;
     if (view !== target || (filterProject && task.projectId !== filterProject))
-      go(target);
+      go(target, matchingProject);
     setOpenId(task.id);
     setCursor(task.id);
     setNotesFor(notes ? task.id : null);
-    requestAnimationFrame(() =>
-      document
-        .querySelector(`[data-task-id="${task.id}"]`)
-        ?.scrollIntoView({ block: "nearest", behavior: "smooth" }),
-    );
+    requestAnimationFrame(() => {
+      const row = document.querySelector(`[data-task-id="${task.id}"]`);
+      if (!notes) row?.querySelector<HTMLElement>(".task-card")?.focus({ preventScroll: true });
+      row?.scrollIntoView({ block: "nearest", behavior: reducedMotion() ? "instant" : "smooth" });
+    });
   }
   // Keyboard: single keys stay out of the way while typing or in a dialog.
   const keyState = useRef({ openId, cursor, view, shortcuts: appearance.shortcuts });
@@ -500,7 +468,7 @@ export default function App() {
     .filter((t) => isLater(t, s.today))
     .sort((a, b) => (a.scheduled ?? "").localeCompare(b.scheduled ?? "") || byPriority(a, b));
   const known = new Set(s.projects.map((p) => p.id));
-  const groups: { key: string; project: Project | null; tasks: Task[] }[] = filterProject
+  const groups = (filterProject
     ? [{ key: "only", project, tasks: now }]
     : [
         ...s.projects.map((p) => ({
@@ -513,11 +481,11 @@ export default function App() {
           project: null,
           tasks: now.filter((t) => !t.projectId || !known.has(t.projectId)),
         },
-      ].filter((g) => g.tasks.length);
+      ]).filter((g) => g.tasks.length);
 
   const row = (
     task: Task,
-    opts: { right?: React.ReactNode; showProject?: boolean; outcome?: boolean } = {},
+    opts: { showProject?: boolean; outcome?: boolean } = {},
   ) => (
     <TaskRow
       key={task.id}
@@ -577,6 +545,7 @@ export default function App() {
     <button
       key={p.id}
       className="nav-item"
+      title={p.title}
       aria-current={filterProject === p.id && view === "tasks" ? "page" : undefined}
       onClick={() => go("tasks", p.id)}
     >
@@ -585,6 +554,19 @@ export default function App() {
       <small>{open.filter((t) => t.projectId === p.id).length || ""}</small>
     </button>
   ));
+  const projectHeading = (
+    <div className="side-heading">
+      <span>Projects</span>
+      <button
+        className="icon-button"
+        aria-label="New project"
+        title="New project"
+        onClick={(e) => setProjectMenu({ kind: "new", anchor: e.currentTarget })}
+      >
+        <Icon name="plus" size={14} />
+      </button>
+    </div>
+  );
   return (
     <div className="app-shell">
       <a className="skip-link" href="#main">
@@ -593,47 +575,44 @@ export default function App() {
       <aside className="sidebar" aria-label="Workspace navigation">
         <div className="wordmark">
           <span className="mark">
-            <Icon name="check" size={13} />
+            <Icon name="daylight" size={25} />
           </span>
           Todo
         </div>
         <button className="search-button" onClick={() => setFind(true)}>
           <Icon name="search" />
           <span>Search</span>
-          <kbd>{modifier()}K</kbd>
+          <kbd>{modifierKey()}K</kbd>
         </button>
-        <nav className="nav-group">
-          {navButton("tasks", "Tasks", "circle", open.length)}
+        <nav className="nav-group" aria-label="Task views">
+          {navButton("tasks", "My tasks", "list-check", open.length)}
           {navButton("done", "Done", "circle-check")}
         </nav>
-        <div className="side-heading">
-          <span>Projects</span>
-          <button
-            className="icon-button"
-            aria-label="New project"
-            onClick={(e) => setProjectMenu({ kind: "new", anchor: e.currentTarget })}
-          >
-            <Icon name="plus" size={14} />
-          </button>
-        </div>
-        <nav className="nav-group projects">
-          {projectLinks}
-          {!activeProjects.length && (
-            <p className="side-hint">Projects group related work, like a repository.</p>
-          )}
-        </nav>
+        {projectHeading}
+        {activeProjects.length > 0 && (
+          <nav className="nav-group" aria-label="Projects">
+            {projectLinks}
+          </nav>
+        )}
         <div className="side-spacer" />
-        <nav className="nav-group">
+        <nav className="nav-group" aria-label="Workspace tools">
           {navButton("trash", "Trash", "trash")}
           {navButton("settings", "Settings", "settings")}
         </nav>
+        <div className="side-utilities">
+          <button onClick={openMini} title="Open Mini Today"><Icon name="device-desktop" size={16} />Mini Today</button>
+          <button className="icon-button" onClick={() => setKeysOpen(true)} aria-label="Keyboard shortcuts" title="Keyboard shortcuts (?)"><Icon name="keyboard" size={17} /></button>
+        </div>
         <button className="vault-status" onClick={() => go("settings")}>
           <i className={error ? "offline" : saving === "Saving…" ? "saving" : ""} />
           <span>{error ? "Connection interrupted" : saving === "Saved" ? "Saved to vault" : saving}</span>
         </button>
       </aside>
       <main id="main" className="main">
-        <div className="page" key={view + (filterProject ?? "")}>
+        <div
+          className={view === "tasks" || view === "done" ? "page workspace-page" : "page"}
+          key={view + (filterProject ?? "")}
+        >
           {(view === "tasks" || view === "done") && project ? (
             <ProjectHeader
               project={project}
@@ -643,34 +622,16 @@ export default function App() {
               onError={notice}
               onMenu={(anchor) => setProjectMenu({ kind: "project", anchor })}
             />
-          ) : (
-            <header className="page-header">
-              <h1>{titles[view]}</h1>
-              {view === "tasks" && <span className="sub">{longDate}</span>}
-              {view === "done" && (
-                <span className="sub">What you finished, with what was done.</span>
-              )}
-              {view === "tasks" && (
-                <span className="header-tools">
-                  <button
-                    className="icon-button"
-                    title="Open Mini Today"
-                    aria-label="Open Mini Today"
-                    onClick={openMini}
-                  >
-                    <Icon name="device-desktop" />
-                  </button>
-                  <button
-                    className="icon-button"
-                    title="Keyboard shortcuts (?)"
-                    aria-label="Keyboard shortcuts"
-                    onClick={() => setKeysOpen(true)}
-                  >
-                    <Icon name="keyboard" />
-                  </button>
-                </span>
-              )}
+          ) : view === "tasks" ? (
+            <header className="planner-header">
+              <div className="planner-title">
+                <h1>My tasks</h1>
+                <time dateTime={s.today}>{longDate}</time>
+              </div>
+              <div className="planner-print" aria-hidden="true" />
             </header>
+          ) : (
+            <header className="page-header"><h1>{titles[view]}</h1></header>
           )}
           {error && (
             <Banner title="Connection interrupted">
@@ -698,59 +659,75 @@ export default function App() {
             onChanged={() => void load()}
           />
           {view === "tasks" && (
-            <>
-              <QuickAdd
-                snapshot={s}
-                projectId={filterProject}
-                inputRef={addInput}
-                onCreated={(task) => {
-                  applyTask(task);
-                  setFresh(task.id);
-                }}
-                onProjectCreated={addProject}
-                onError={notice}
-              />
-              {groups.map((g) => (
-                <section className="group" key={g.key}>
-                  {!filterProject && (
-                    <h2 className="group-title">
-                      {g.project ? (
-                        <button onClick={() => go("tasks", g.project!.id)}>
-                          <span
-                            className="swatch"
-                            style={{ background: projectColor(g.project.id) }}
-                          />
-                          {g.project.title}
-                        </button>
-                      ) : (
-                        "No project"
-                      )}
-                      <span className="count">{g.tasks.length}</span>
-                    </h2>
-                  )}
-                  {g.tasks.map((t) => row(t))}
-                </section>
-              ))}
-              {!now.length && (
-                <Empty title="All clear.">
-                  {later.length
-                    ? "Nothing needs you right now. Later work is below."
-                    : "Nothing open. Add a task above when something comes up."}
-                </Empty>
-              )}
-              {later.length > 0 && (
-                <section className="group later">
-                  <h2 className="group-title">
-                    Later <span className="count">{later.length}</span>
-                  </h2>
-                  {later.map((t) =>
-                    row(t, {
-                      right: t.scheduled ? dateLabel(t.scheduled, s.today) : undefined,
-                    }),
-                  )}
-                </section>
-              )}
-            </>
+            <div className="task-workspace">
+              <div className="task-queue">
+                <div className="queue-heading"><h2>To do</h2><span className="section-count">{now.length}</span></div>
+                <QuickAdd
+                  snapshot={s}
+                  projectId={filterProject}
+                  inputRef={addInput}
+                  onCreated={(task) => {
+                    applyTask(task);
+                    setFresh(task.id);
+                  }}
+                  onProjectCreated={addProject}
+                  onError={notice}
+                />
+                {groups.length > 0 && (
+                  <div className="task-ledger open-ledger">
+                    {groups.map(({ key, project: groupProject, tasks }) => (
+                      <section className="group" key={key}>
+                        {!filterProject && (
+                          <h2 className="group-title">
+                            {groupProject ? (
+                              <button onClick={() => go("tasks", groupProject.id)}>
+                                <span className="swatch" style={{ background: projectColor(groupProject.id) }} />
+                                {groupProject.title}
+                              </button>
+                            ) : (
+                              "No project"
+                            )}
+                            <span className="count">{tasks.length}</span>
+                          </h2>
+                        )}
+                        {tasks.map((t) => row(t))}
+                      </section>
+                    ))}
+                  </div>
+                )}
+                {!scoped.length && (
+                  <Empty icon="inbox" title="No open tasks">
+                    Add a task when something comes up.
+                  </Empty>
+                )}
+              </div>
+              <div className="task-context">
+                {later.length > 0 && (
+                  <section className="task-ledger later-ledger" aria-labelledby="later-title">
+                    <div className="group">
+                      <h2 className="agenda-title" id="later-title">
+                        <Icon name="calendar-week" size={19} />
+                        Upcoming <span className="section-count">{later.length}</span>
+                      </h2>
+                      {later.map((task, index) => (
+                        <div className="agenda-entry" key={task.id}>
+                          {task.scheduled && task.scheduled !== later[index - 1]?.scheduled && (
+                            <h3><time dateTime={task.scheduled}>{dateLabel(task.scheduled, s.today)}</time></h3>
+                          )}
+                          {row(task, { showProject: !filterProject })}
+                        </div>
+                      ))}
+                    </div>
+                  </section>
+                )}
+                <RecentCompletions
+                  snapshot={s}
+                  projectId={filterProject}
+                  onOpen={(task) => openTask(task)}
+                  onDone={() => go("done", filterProject)}
+                />
+              </div>
+            </div>
           )}
           {view === "done" && (
             <DoneView
@@ -917,7 +894,7 @@ export default function App() {
       <nav className="mobile-nav" aria-label="Main navigation">
         {(
           [
-            ["tasks", "Tasks", "circle"],
+            ["tasks", "Tasks", "list-check"],
             ["done", "Done", "circle-check"],
           ] as const
         ).map(([v, label, icon]) => (
@@ -946,9 +923,7 @@ export default function App() {
       {more && (
         <div className="sheet-scrim" onClick={() => setMore(false)}>
           <div className="sheet" onClick={(e) => e.stopPropagation()}>
-            <div className="side-heading">
-              <span>Projects</span>
-            </div>
+            {projectHeading}
             {projectLinks}
             <hr />
             {navButton("trash", "Trash", "trash")}
@@ -1150,6 +1125,7 @@ function ProjectHeader({
       <input
         className="title-h1"
         aria-label="Project name"
+        title={project.title}
         value={title}
         maxLength={120}
         onChange={(e) => setTitle(e.target.value)}

@@ -17,7 +17,7 @@ const MarkdownNote = lazy(() =>
   import("./MarkdownNote").then((m) => ({ default: m.MarkdownNote })),
 );
 import type { Task, TaskPatch, Snapshot, Project } from "../core/model";
-import { Button, Icon, copyText, errorMessage } from "./components";
+import { Button, Icon, modifierKey, copyText, errorMessage } from "./components";
 import { ClientError, call } from "./client";
 import { DatePicker, dateLabel } from "./DateControl";
 import { ScheduleFields } from "./ScheduleFields";
@@ -361,6 +361,7 @@ export function TaskEditor({
     <section
       className={"task-card" + (done ? " is-done" : "")}
       aria-label={"Details for " + task.title}
+      tabIndex={-1}
       onKeyDown={(e) => {
         if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
           e.preventDefault();
@@ -583,7 +584,7 @@ export function TaskEditor({
             </Button>
           ) : (
             <Button icon="check" onClick={() => void finish()}>
-              Complete <kbd>⌘↵</kbd>
+              Complete <kbd>{modifierKey()} ↵</kbd>
             </Button>
           )}
           <span

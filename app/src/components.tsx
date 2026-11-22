@@ -10,6 +10,8 @@ import {
 } from "react";
 import { createPortal } from "react-dom";
 import { icons } from "./icons";
+export const modifierKey = () => (/Mac/.test(navigator.platform) ? "⌘" : "Ctrl");
+
 export function Icon({
   name,
   size = 16,
@@ -87,12 +89,24 @@ export function Empty({
   title,
   children,
   action,
+  icon,
 }: {
   title: string;
   children: ReactNode;
   icon?: string;
   action?: ReactNode;
 }) {
+  if (icon)
+    return (
+      <div className="list-empty">
+        <span className="list-empty-icon"><Icon name={icon} size={19} /></span>
+        <div>
+          <h2>{title}</h2>
+          <p>{children}</p>
+        </div>
+        {action}
+      </div>
+    );
   return (
     <div className="empty">
       <EmptyArt />

@@ -4,7 +4,7 @@ import type { Task } from "../core/model";
 import type { SessionInfo } from "../core/protocol";
 import { call, subscribe, ClientError } from "./client";
 import { Icon, errorMessage } from "./components";
-import { readStored } from "./storage";
+import { applyAppearance, readAppearance } from "./appearance";
 import { fullHref } from "./mini-window";
 import { Reminders } from "./Reminders";
 const shortDate = (value: string) =>
@@ -122,22 +122,7 @@ export function MiniApp() {
     };
   }, [authenticated, refresh]);
   useEffect(() => {
-    const apply = () => {
-      let a: { theme?: string; text?: string; motion?: string } = {};
-      try {
-        a = JSON.parse(readStored("todo:appearance") ?? "{}");
-      } catch {}
-      for (const doc of [document]) {
-        doc.documentElement.dataset.theme =
-          a.theme === "dark" ||
-          (a.theme === "system" &&
-            matchMedia("(prefers-color-scheme: dark)").matches)
-            ? "dark"
-            : "light";
-        doc.documentElement.dataset.text = a.text ?? "default";
-        doc.documentElement.dataset.motion = a.motion ?? "system";
-      }
-    };
+    const apply = () => applyAppearance(readAppearance());
     apply();
     const media = matchMedia("(prefers-color-scheme: dark)");
     media.addEventListener("change", apply);

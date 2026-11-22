@@ -1,82 +1,128 @@
 @font-face {
   font-family: Inter;
-  src: url("../public/fonts/InterVariable.woff2") format("woff2");
+  src: url("/fonts/InterVariable.woff2") format("woff2");
   font-weight: 100 900;
   font-display: swap;
 }
-/* Design tokens. Warm paper neutrals, hairlines and one green accent. */
+@font-face {
+  font-family: "DM Sans";
+  src: url("/fonts/DMSans-Latin.woff2") format("woff2");
+  font-weight: 400 750;
+  font-display: swap;
+}
+@font-face {
+  font-family: "DM Sans";
+  src: url("/fonts/DMSans-Italic-Latin.woff2") format("woff2");
+  font-weight: 400 750;
+  font-style: italic;
+  font-display: swap;
+}
+@font-face {
+  font-family: Newsreader;
+  src: url("/fonts/Newsreader-Latin.woff2") format("woff2");
+  font-weight: 200 800;
+  font-display: swap;
+}
+
 :root {
   color-scheme: light;
-  font-family: Inter, system-ui, sans-serif;
-  font-feature-settings: "cv11", "ss01";
-  font-synthesis: none;
-  --canvas: #faf9f7;
-  --sidebar: #f3f1ed;
-  --surface: #ffffff;
-  --raised: #ffffff;
-  --hover: #f1efeb;
-  --selected: #e9e6e0;
-  --line: #e8e5e0;
-  --line-strong: #d6d2cb;
-  --ink: #1d1c1a;
-  --ink-2: #4a4743;
-  --muted: #858079;
-  --faint: #b2ada6;
-  --accent: #2e6b57;
+  font-family: var(--sans);
+  font-synthesis: style;
+  background: var(--canvas);
+  --print-paper: #efe5d4;
+  --agenda-paper: #eeedf5;
+  --agenda-icon: #595276;
+  --agenda-count: #e0ddeb;
+  --nav-current: #e4ded7;
+  --button-idle-ink: #84442e;
+  --canvas: #fbf9f4;
+  --sidebar: #f0ece5;
+  --surface: #fffefa;
+  --section: #f1ede6;
+  --raised: #fffefa;
+  --hover: #f1ede7;
+  --selected: #eee3de;
+  --editing: #f5f1ea;
+  --line: #e1dbd2;
+  --line-strong: #c9c1b7;
+  --control: #89847c;
+  --ink: #292838;
+  --ink-2: #474552;
+  --muted: #686471;
+  --faint: #908992;
+  --accent: #9c432a;
   --accent-ink: #ffffff;
-  --accent-soft: #e5eee8;
-  --chip: #f0eee9;
-  --chip-ink: #57534d;
-  --key: #edf0f5;
-  --key-ink: #3a4862;
-  --warning: #9a5b12;
-  --warning-bg: #fbf1e1;
-  --danger: #b2443c;
-  --danger-bg: #fbecea;
+  --accent-soft: #f5e2d7;
+  --chip: #ede9e3;
+  --chip-ink: #514b54;
+  --key: #e8e5f2;
+  --key-ink: #524b73;
+  --warning: #9b4025;
+  --warning-bg: #fbf0dd;
+  --danger: #a3363e;
+  --danger-bg: #f8e9e7;
+  --danger-ink: #ffffff;
+  --notice: #302e3e;
+  --notice-ink: #fff9ef;
+  --notice-action: #ffb795;
+  --notice-hover: #444150;
   --shadow: 0 1px 2px rgb(29 28 26 / 4%), 0 8px 24px rgb(29 28 26 / 7%);
   --shadow-lg: 0 2px 6px rgb(29 28 26 / 6%), 0 24px 60px rgb(29 28 26 / 16%);
   --scrim: rgb(29 28 26 / 28%);
-  --serif: ui-serif, "New York", "Iowan Old Style", Charter, Georgia, serif;
+  --sans: "DM Sans", Inter, system-ui, sans-serif;
+  --serif: Newsreader, ui-serif, Georgia, serif;
   --mono: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace;
   --ease: cubic-bezier(0.2, 0.8, 0.2, 1);
-  --body-size: 14px;
+  --body-size: 15px;
   /* Older component names map onto the new tokens. */
   --tint: var(--accent-soft);
-  --control: var(--line-strong);
   --brand: var(--accent);
   --primary: var(--accent);
 }
 :root[data-theme="dark"] {
   color-scheme: dark;
-  --canvas: #141413;
-  --sidebar: #191917;
-  --surface: #1c1c1a;
-  --raised: #232321;
-  --hover: #222220;
-  --selected: #2a2a27;
-  --line: #2a2926;
-  --line-strong: #3a3834;
-  --ink: #ecebe7;
-  --ink-2: #c4c1bb;
-  --muted: #8f8b84;
-  --faint: #5f5c57;
-  --accent: #7cc4a6;
-  --accent-ink: #10231b;
-  --accent-soft: #1d2c25;
-  --chip: #262522;
-  --chip-ink: #b9b5ae;
-  --key: #222633;
-  --key-ink: #aab8d6;
-  --warning: #e0a85c;
-  --warning-bg: #2f2618;
-  --danger: #f0928a;
-  --danger-bg: #33201e;
+  --print-paper: #363445;
+  --agenda-paper: #2a2938;
+  --agenda-icon: #c2b7e1;
+  --agenda-count: #393649;
+  --nav-current: #343140;
+  --button-idle-ink: #e9bdab;
+  --canvas: #1c1c26;
+  --sidebar: #191820;
+  --surface: #24242f;
+  --section: #2b2a37;
+  --raised: #302f3d;
+  --hover: #2d2c3b;
+  --selected: #3a384b;
+  --editing: #292835;
+  --line: #353441;
+  --line-strong: #4a4858;
+  --control: #928e9e;
+  --ink: #f7f1e8;
+  --ink-2: #dbd5de;
+  --muted: #b2acbb;
+  --faint: #898393;
+  --accent: #ffad86;
+  --accent-ink: #331e17;
+  --accent-soft: #483229;
+  --chip: #34323f;
+  --chip-ink: #d3cbd9;
+  --key: #383446;
+  --key-ink: #d3c9ed;
+  --warning: #ffaf87;
+  --warning-bg: #392c20;
+  --danger: #f3aaa1;
+  --danger-bg: #3f2a2c;
+  --danger-ink: #321c1d;
+  --notice: var(--raised);
+  --notice-ink: var(--ink);
+  --notice-action: var(--accent);
   --shadow: 0 1px 2px rgb(0 0 0 / 30%), 0 10px 30px rgb(0 0 0 / 35%);
   --shadow-lg: 0 2px 8px rgb(0 0 0 / 35%), 0 30px 80px rgb(0 0 0 / 55%);
   --scrim: rgb(0 0 0 / 50%);
 }
 :root[data-text="large"] {
-  --body-size: 16px;
+  --body-size: 17px;
 }
 * {
   box-sizing: border-box;
@@ -84,7 +130,7 @@
 body {
   margin: 0;
   font-size: var(--body-size);
-  line-height: 1.45;
+  line-height: 1.48;
   background: var(--canvas);
   color: var(--ink);
   -webkit-font-smoothing: antialiased;
@@ -109,6 +155,10 @@ button:disabled {
 a {
   color: var(--accent);
 }
+::selection {
+  background: var(--accent-soft);
+  color: var(--ink);
+}
 :focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: 2px;
@@ -121,8 +171,8 @@ p {
   margin: 0;
 }
 h1 {
-  font: 600 28px/1.15 var(--serif);
-  letter-spacing: -0.015em;
+  font: 630 30px/1.1 var(--serif);
+  letter-spacing: -0.025em;
 }
 h2 {
   font-size: 14px;
@@ -146,6 +196,7 @@ textarea {
   padding: 7px 10px;
   background: var(--surface);
   color: var(--ink);
+  caret-color: var(--accent);
   max-width: 100%;
   transition: border-color 0.15s, box-shadow 0.15s;
 }
@@ -155,6 +206,11 @@ textarea:focus {
   border-color: var(--accent);
   box-shadow: 0 0 0 3px var(--accent-soft);
   outline: none;
+}
+input::placeholder,
+textarea::placeholder {
+  color: var(--muted);
+  opacity: 1;
 }
 input[type="checkbox"] {
   width: 16px;
@@ -274,7 +330,7 @@ small {
 }
 .button.danger {
   background: var(--danger);
-  color: #fff;
+  color: var(--danger-ink);
 }
 .button .icon {
   width: 15px;

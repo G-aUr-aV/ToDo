@@ -1,5 +1,6 @@
 // Inline stroke icons (24×24 grid) so they follow the text colour and theme.
 export const icons: Record<string, string> = {
+  daylight: '<path d="M3 15h18M6 19h12M6.5 12a5.5 5.5 0 0111 0M12 2v2M4.4 5.3l1.5 1.4M19.6 5.3l-1.5 1.4"/>',
   check: '<path d="M5 12.5l4.5 4.5L19 7.5"/>',
   circle: '<circle cx="12" cy="12" r="8.5"/>',
   "circle-check":

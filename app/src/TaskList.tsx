@@ -2,7 +2,7 @@ import { useRef, useState, type ReactNode } from "react";
 import type { Project, Snapshot, Task } from "../core/model";
 import { checkItems } from "../core/checklist";
 import { titleParts } from "./rich-title-parts";
-import { Icon, errorMessage } from "./components";
+import { Button, Icon, errorMessage } from "./components";
 import { call } from "./client";
 import { DatePicker, dateLabel } from "./DateControl";
 import { Popover, MenuItem } from "./Popover";
@@ -77,7 +77,7 @@ export function CheckButton({
 }
 
 /** Small faint markers after a title: notes, checklist, deadline, labels… */
-export function Markers({ task, today }: { task: Task; today: string }) {
+function Markers({ task, today, showNotes }: { task: Task; today: string; showNotes: boolean }) {
   const items = checkItems(task.notes);
   const done = items.filter((i) => i.checked).length;
   const late = !!task.due && task.due < today && task.status !== "done";
@@ -89,7 +89,7 @@ export function Markers({ task, today }: { task: Task; today: string }) {
           {done}/{items.length}
         </span>
       ) : (
-        task.notes.trim() && (
+        showNotes && task.notes.trim() && (
           <span title="Has notes">
             <Icon name="note" size={13} />
           </span>
@@ -135,7 +135,6 @@ export function TaskRow({
   leaving,
   fresh,
   showProject,
-  right,
   outcome,
   focused,
   onOpen,
@@ -150,7 +149,6 @@ export function TaskRow({
   leaving?: boolean;
   fresh?: boolean;
   showProject?: boolean;
-  right?: ReactNode;
   outcome?: boolean;
   focused?: boolean;
   onOpen: () => void;
@@ -200,6 +198,7 @@ export function TaskRow({
   const project = showProject
     ? snapshot.projects.find((p) => p.id === task.projectId)
     : undefined;
+  const preview = outcome && !open ? outcomeLine(task.notes) : "";
   return (
     <div
       className={
@@ -233,19 +232,18 @@ export function TaskRow({
                   text={task.title}
                   template={snapshot.preferences.issueLinkTemplate}
                 />
-                <Markers task={task} today={snapshot.today} />
+                <Markers task={task} today={snapshot.today} showNotes={!preview} />
               </span>
-              {outcome && outcomeLine(task.notes) && (
-                <span className="row-outcome">{outcomeLine(task.notes)}</span>
-              )}
+              {preview && <span className="row-outcome">{preview}</span>}
             </div>
             {project && (
-              <span className="row-right">
-                <span className="swatch" style={{ background: projectColor(project.id) }} />
-                {project.title}
+              <span className="row-meta">
+                <span className="row-project" title={project.title}>
+                  <span className="swatch" style={{ background: projectColor(project.id) }} />
+                  <span>{project.title}</span>
+                </span>
               </span>
             )}
-            {right && <span className="row-right">{right}</span>}
             {actions}
           </div>
         )}
@@ -307,7 +305,7 @@ export function QuickAdd({
       inputRef.current?.focus();
     }
   }
-  const active = !!(title || notes || scheduled || menu);
+  const active = project !== projectId || !!(title || notes || scheduled || menu);
   return (
     <form
       className={"quick-add" + (active ? " active" : "")}
@@ -316,11 +314,11 @@ export function QuickAdd({
         void submit();
       }}
     >
-      <Icon name="plus" />
+      <Icon name="plus" size={18} />
       <input
         ref={inputRef}
         aria-label="Add a task"
-        placeholder="Add a task — paste a link or Jira key, press ↵"
+        placeholder="Add a task…"
         value={title}
         maxLength={240}
         aria-busy={busy}
@@ -360,7 +358,7 @@ export function QuickAdd({
         )}
         <button
           type="button"
-          className="prop"
+          className="prop quick-project"
           onClick={(e) => setMenu({ kind: "project", anchor: e.currentTarget })}
         >
           {current ? (
@@ -368,7 +366,7 @@ export function QuickAdd({
           ) : (
             <Icon name="folder" size={14} />
           )}
-          {current?.title ?? "No project"}
+          <span title={current?.title}>{current?.title ?? "No project"}</span>
         </button>
         <button
           type="button"
@@ -379,6 +377,9 @@ export function QuickAdd({
           {scheduled ? dateLabel(scheduled, snapshot.today) : "No date"}
         </button>
       </span>
+      <Button className="quick-submit" type="submit" disabled={!title.trim() || busy}>
+        {busy ? "Adding…" : "Add task"}
+      </Button>
       {menu?.kind === "project" && (
         <Popover anchor={menu.anchor} onClose={() => setMenu(null)} label="Project" width={240}>
           {snapshot.projects

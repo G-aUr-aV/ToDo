@@ -1,4 +1,5 @@
 import { readStored, writeStored } from "./storage";
+import type { Appearance } from "./appearance";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 
 import type { Snapshot, Preferences } from "../core/model";
@@ -6,13 +7,6 @@ import type { ImportItem, ImportPreview } from "../core/vault";
 import { call } from "./client";
 import { NotificationPreference } from "./Reminders";
 import { Banner, Button, Empty, Field, Icon, Modal, copyText, download, errorMessage } from "./components";
-type Appearance = {
-  theme: string;
-  density: string;
-  text: string;
-  shortcuts: boolean;
-  motion: string;
-};
 type TokenInfo = { id: string; name: string; createdAt: string; lastUsedAt: string | null };
 type Created = { token: string; info: TokenInfo; endpoint: string };
 

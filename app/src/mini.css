@@ -27,7 +27,7 @@ body {
   flex: none;
 }
 .mini-header h1 {
-  font: 600 24px/1.15 var(--serif);
+  font: 630 27px/1.1 var(--serif);
   letter-spacing: -0.015em;
 }
 .mini-caption {
@@ -90,7 +90,7 @@ body {
   height: 18px;
   margin: 0;
   border-radius: 50%;
-  border: 1.5px solid var(--faint);
+  border: 1.5px solid var(--control);
   background: var(--surface);
   transition: border-color 0.15s, background 0.2s, box-shadow 0.2s;
 }
@@ -150,14 +150,10 @@ body {
   margin: 0 10px 10px;
   padding: 6px 6px 6px 14px;
   border-radius: 10px;
-  background: #1d1c1a;
-  color: #f3f1ed;
+  background: var(--notice);
+  color: var(--notice-ink);
   font-size: 12.5px;
   animation: rise 0.25s var(--ease);
-}
-:root[data-theme="dark"] .mini-notice {
-  background: #ecebe7;
-  color: #1d1c1a;
 }
 .mini-notice > span {
   flex: 1;
@@ -165,13 +161,10 @@ body {
   overflow: auto;
 }
 .mini-notice > button:not(.icon-button) {
-  color: #a7dcc4;
+  color: var(--notice-action);
   font-weight: 650;
   padding: 4px 8px;
   border-radius: 6px;
-}
-:root[data-theme="dark"] .mini-notice > button:not(.icon-button) {
-  color: #2e6b57;
 }
 .mini-notice .icon-button {
   color: inherit;

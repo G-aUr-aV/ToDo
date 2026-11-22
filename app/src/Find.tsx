@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import type { Snapshot, Task, Project } from "../core/model";
-import { Icon } from "./components";
+import { Icon, modifierKey } from "./components";
 import { projectColor } from "./project-color";
 
 type Result = { kind: "task"; task: Task } | { kind: "project"; project: Project };
@@ -175,7 +175,7 @@ export function KeyboardSheet({ onClose }: { onClose: () => void }) {
               <dt>{what}</dt>
               <dd>
                 {combo.map((k) => (
-                  <kbd key={k}>{k}</kbd>
+                  <kbd key={k}>{k === "⌘" ? modifierKey() : k}</kbd>
                 ))}
               </dd>
             </div>
