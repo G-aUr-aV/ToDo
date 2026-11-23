@@ -21,21 +21,15 @@ scripts/local-node.sh npm start   # any npm/node command
 
 To update, change `.node-version` and run `install`; older copies in `.tools/` are removed. Delete `.tools/` to remove it entirely. `.node-version` is also read by fnm, mise and nodenv if you prefer a version manager.
 
-The launcher installs the locked dependencies when absent, builds absent/outdated output, then serves Todo in the same Node process. Future starts do not keep a builder or launcher child running. An internet connection is needed for the first dependency installation. `npm run setup` explicitly repeats the clean install and build.
+The start command installs the locked dependencies when absent, builds absent/outdated output, then serves Todo in the same Node process. An internet connection is needed for the first dependency installation. `npm run setup` explicitly repeats the clean install and build.
 
 A fresh start creates the complete `Todo Vault/` scaffold: Tasks, Projects, Attachments, Templates, Obsidian configuration, a Home guide and Tasks.base. An existing empty Docker mount is also initialized. An existing vault is retained; its note files and custom setup are never replaced.
 
-Open http://localhost:4310. The generated initial login is written privately to `.todo-state/server/initial-login.txt` (0600 permissions) and its path is printed. Read the file locally, sign in, then set your own password in Settings → Vault & connection. The file is removed after the password changes. Restarting the server clears browser sessions and requires signing in again.
+Open http://localhost:4310. The generated initial login is written privately to `.todo-state/server/initial-login.txt` (0600 permissions) and its path is printed. Read the file locally, sign in, then set your own password in Settings → Account. The file is removed after the password changes. Your session stays signed in for a week from last use and survives server restarts.
 
 Open `Todo Vault/` in Obsidian. To let a local assistant review progress, give it read access to the vault. It can read Markdown without an API or AI provider connection. `Home.md` describes active/completed/trashed tasks, date fields, history and recurrence links.
 
 For personal task management from any project, install the portable `todo-tasks` skill and a short routing rule using the [Codex, Claude Code and Hermes setup guide](agent-skills.md). It also covers the separate `todo-setup` skill. A clone includes the skill sources; each machine supplies its own vault paths, global installation and agent permissions.
-
-## Desktop shortcuts
-
-Once Chrome/Chromium is installed, `npm run launchers:install` creates separate Todo and Mini Today icons for the current OS. Use `-- --url https://your-server.example` when this computer connects to a remote server. The shortcuts reuse Chrome and do not start another vault server. See [platform commands, architecture guidance and agent setup](desktop-launchers.md).
-
-For an agent, the reusable entry point is [.agents/skills/todo-setup/SKILL.md](../.agents/skills/todo-setup/SKILL.md). It checks the destination OS/CPU, preserves existing data/configuration and verifies both routes.
 
 ## Configuration
 
@@ -65,4 +59,4 @@ Stop Todo before copying both the entire vault and `.todo-state/server/` to your
 
 For source updates, stop the server, update the source, run `npm run setup`, then `npm start`. For Docker updates, run `./start-docker.sh` again. Neither operation deletes vault files, owner credentials or recoverable history.
 
-Reminders require Todo or Mini Today open in a browser. Enable browser notifications in Settings if you want system alerts. A device asleep or a page suspended cannot deliver exactly on time; due reminders catch up on return. Unfinished-date rollover runs on the server and catches up after downtime even when no browser page is open.
+Reminders require Todo open in a browser. Enable browser notifications in Settings if you want system alerts. A device asleep or a page suspended cannot deliver exactly on time; due reminders catch up on return. Unfinished-date rollover runs on the server and catches up after downtime even when no browser page is open.

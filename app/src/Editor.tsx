@@ -42,6 +42,7 @@ function changes(draft: TaskPatch, base: TaskPatch): TaskPatch {
 type Menu = "project" | "date" | "deadline" | "add" | "labels" | null;
 /** What the list and keyboard can ask the open card to do. */
 export type CardActions = {
+  editNotes: () => void;
   toggle: () => void;
   openMenu: (kind: "project" | "date") => void;
 };
@@ -88,6 +89,7 @@ export function TaskEditor({
   };
   const [draft, setDraft] = useState<TaskPatch>(initial);
   const [tagsText, setTagsText] = useState((initial().tags ?? []).join(", "));
+  const editNotesButton = useRef<HTMLButtonElement>(null);
   const [editing, setEditing] = useState(editNotes);
   const [status, setStatus] = useState(
     readStored(key) ? "Draft restored" : "Saved",
@@ -215,7 +217,7 @@ export function TaskEditor({
   // Register what the list and keyboard can ask of this card, after every render.
   useLayoutEffect(() => {
     if (!actionsRef) return;
-    const actions = { toggle, openMenu };
+    const actions = { toggle, openMenu, editNotes: () => setEditing(true) };
     actionsRef.current = actions;
     return () => {
       if (actionsRef.current === actions) actionsRef.current = null;
@@ -382,7 +384,7 @@ export function TaskEditor({
           onChange={(e) => change({ title: e.target.value.replace(/\n/g, " ") })}
           onBlur={() => void save()}
           onKeyDown={(e) => {
-            if (e.key === "Enter") {
+            if (e.key === "Enter" && !e.ctrlKey && !e.metaKey && !e.nativeEvent.isComposing) {
               e.preventDefault();
               void save();
               setEditing(true);
@@ -517,21 +519,35 @@ export function TaskEditor({
                 if (e.key === "Escape") {
                   e.preventDefault();
                   e.stopPropagation();
-                  (e.target as HTMLTextAreaElement).blur();
+                  e.currentTarget.blur();
+                  requestAnimationFrame(() => editNotesButton.current?.focus({ preventScroll: true }));
                 }
               }}
             />
           ) : draft.notes?.trim() ? (
-            <Suspense fallback={<p className="muted">Loading notes…</p>}>
-              <MarkdownNote
-                body={draft.notes}
-                onChange={(notes) => change({ notes })}
-              />
-            </Suspense>
+            <>
+              <button
+                ref={editNotesButton}
+                type="button"
+                className="note-edit-button icon-button"
+                aria-label="Edit notes"
+                title="Edit notes"
+                onClick={() => setEditing(true)}
+              >
+                <Icon name="note" />
+              </button>
+              <Suspense fallback={<p className="muted">Loading notes…</p>}>
+                <MarkdownNote
+                  body={draft.notes}
+                  onChange={(notes) => change({ notes })}
+                />
+              </Suspense>
+            </>
           ) : (
             <button
               type="button"
               className="notes-placeholder"
+              ref={editNotesButton}
               onClick={() => setEditing(true)}
             >
               Context, progress, what was done… Markdown works.
@@ -726,7 +742,6 @@ export function form(task: Task): TaskPatch {
     reminder: task.reminder,
     repeat: task.repeat,
     projectId: task.projectId,
-    focus: task.focus,
     trashed: task.trashed,
     tags: task.tags,
     notes: task.notes,

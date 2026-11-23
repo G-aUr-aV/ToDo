@@ -422,10 +422,6 @@ const tools: Tool[] = [
       description: z.string().max(2_000).default(""),
     }),
     async run(vault, a) {
-      const s = await vault.snapshot();
-      const taken = s.projects.find((p) => p.title.toLowerCase() === a.title.toLowerCase());
-      if (taken)
-        throw new AppError(409, "PROJECT_EXISTS", `A project named "${taken.title}" already exists.`);
       const project = await vault.createProject({
         requestId: randomUUID(),
         title: a.title,

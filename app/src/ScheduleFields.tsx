@@ -49,7 +49,7 @@ export function ScheduleFields({
           onChange={(event) => editReminder(event.currentTarget)}
         />
         <small id={hintId}>
-          {error || `In ${timezone}. Keep Todo or Mini open for reminders.`}
+          {error || `In ${timezone}. Keep Todo open for reminders.`}
         </small>
       </label>
       <div className="repeat-fields">

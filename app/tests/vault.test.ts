@@ -6,7 +6,7 @@ import os from "node:os";
 import { randomUUID } from "node:crypto";
 import { Vault, createVault } from "../core/vault";
 import { parseNote, serialize, hash, freshNote } from "../core/notes";
-import { AppError, dayInZone, inToday, validDate } from "../core/model";
+import { AppError, dayInZone, inNow, validDate } from "../core/model";
 async function fixture(t: test.TestContext) {
   const dir = await fs.mkdtemp(path.join(await fs.realpath(os.tmpdir()), "todo-test-"));
   const root = await createVault(path.join(dir, "Vault"));
@@ -71,7 +71,7 @@ test("unknown YAML properties, comments and untouched Markdown body survive a me
   const raw = `---\nschema_version: 1\ntype: task\nid: ${id}\ntitle: Test\nstatus: todo\n# keep this comment\ncustom:\n  color: blue # also keep\nscheduled:\ndue:\n---\n\n## A custom heading\n\n- [ ] Original checklist\n\nLiteral <tag> and [[Other note]].\n`;
   await fs.writeFile(path.join(root, "Tasks/custom.md"), raw);
   const task = (await vault.snapshot()).tasks[0];
-  await vault.updateTask(id, task.revision, { focus: true });
+  await vault.updateTask(id, task.revision, { tags: ["review"] });
   const after = await fs.readFile(path.join(root, "Tasks/custom.md"), "utf8");
   assert.equal(parseNote(after).body, parseNote(raw).body);
   assert.deepEqual(parseNote(after).data.custom, { color: "blue" });
@@ -277,8 +277,35 @@ test("archiving a project retains task links and date membership", async (t) => 
   const s = await vault.snapshot();
   assert.equal(s.tasks[0].projectId, project.id);
   assert.equal(s.projects[0].archived, true);
-  assert.equal(inToday(s.tasks[0], s.today), true);
+  assert.equal(inNow(s.tasks[0], s.today), true);
   assert.match(task.project!, /^\[\[Projects\//);
+});
+test("existing duplicate project names remain editable and can be renamed to resolve the collision", async (t) => {
+  const { vault, root } = await fixture(t);
+  const project = await vault.createProject({ requestId: randomUUID(), title: "Work" });
+  const duplicateId = randomUUID();
+  const duplicateFile = path.join(root, "Projects", "other-work.md");
+  const duplicateRaw = freshNote({
+    schema_version: 1,
+    type: "project",
+    id: duplicateId,
+    title: "work",
+  }, "Legacy project");
+  await fs.writeFile(duplicateFile, duplicateRaw);
+
+  const { projects } = await vault.snapshot();
+  assert.deepEqual(new Set(projects.map((entry) => entry.id)), new Set([project.id, duplicateId]));
+  const updated = await vault.updateProject(project.id, project.revision, {
+    title: project.title,
+    notes: "Edited project notes",
+  });
+  await assert.rejects(vault.updateProject(project.id, updated.revision, { title: "WORK" }), {
+    code: "PROJECT_EXISTS",
+  });
+  const renamed = await vault.updateProject(project.id, updated.revision, { title: "Work planning" });
+  assert.equal(renamed.title, "Work planning");
+  assert.equal(renamed.path, project.path);
+  assert.equal(await fs.readFile(duplicateFile, "utf8"), duplicateRaw);
 });
 test("planning changes never implicitly change deadlines", async (t) => {
   const { vault } = await fixture(t);
@@ -290,7 +317,7 @@ test("planning changes never implicitly change deadlines", async (t) => {
     scheduled: "2026-10-20",
   });
   assert.equal(updated.due, "2026-10-15");
-  assert.equal(inToday(updated, "2026-10-15"), true);
+  assert.equal(inNow(updated, "2026-10-15"), true);
 });
 test(
   "a read-only task rejects changes without replacing the note",
@@ -369,30 +396,6 @@ test("UUID letter case cannot hide a duplicate note identity", async (t) => {
     ).length,
     2,
   );
-});
-test("legacy start pages still open the vault and map to Tasks", async (t) => {
-  const dir = await fs.mkdtemp(path.join(await fs.realpath(os.tmpdir()), "todo-test-"));
-  t.after(() => fs.rm(dir, { recursive: true, force: true }));
-  const root = await createVault(path.join(dir, "Vault"));
-  await fs.mkdir(path.join(dir, "state"), { recursive: true });
-  await fs.writeFile(
-    path.join(dir, "state", "preferences.json"),
-    JSON.stringify({
-      timezone: "Asia/Kolkata",
-      weekStartsOn: 1,
-      startPage: "today",
-      obsidianVault: "",
-      autoRollover: true,
-    }),
-  );
-  const vault = await new Vault(root, path.join(dir, "state")).start();
-  try {
-    const s = await vault.snapshot();
-    assert.equal(s.preferences.startPage, "tasks");
-    assert.equal(s.preferences.issueLinkTemplate, "");
-  } finally {
-    await vault.close();
-  }
 });
 test("an issue link template must contain {key}", async (t) => {
   const { vault } = await fixture(t);

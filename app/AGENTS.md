@@ -1,12 +1,8 @@
 # Prototype Instructions
 
-Todo is a single-owner, self-hosted website with optional Chrome app windows on Linux, Mac and Windows. The owner explicitly removed native desktop delivery for simplicity and low resource use. Do not add Electron, Tauri, native installers, IPC bridges or local-folder onboarding. Keep the Mini Today route and the design in `docs/superpowers/specs/2026-11-21-todo-revamp-design.md`: one Tasks list, a Done log, notes one click away. The owner wants few clicks, so show a control only when it is needed and prefer inline editing to dialogs. Agents write only through the `/mcp` endpoint or the signed-in API. Reuse one vault engine and do not add another storage system or automatic offline writes.
+Todo is a single-owner, self-hosted website used in a regular browser tab. Follow the task model in `docs/superpowers/specs/2026-11-21-todo-revamp-design.md`: one Tasks list, a Done log, notes one click away. The owner wants few clicks, so show a control only when it is needed and prefer inline editing to dialogs. Agents write only through the `/mcp` endpoint or the signed-in API. Reuse one vault engine and do not add another storage system or automatic offline writes.
 
-Lightweight operation is a primary requirement: minimize download size, idle memory, idle CPU and maintenance cost. Measure the complete runtime rather than only JavaScript entry sizes. Browser installation reuses the browser; it does not mean zero memory use.
-
-The owner requested separate macOS, Windows and Linux desktop launchers that internally open the existing Chrome app. Small per-user shortcut/app-bundle helpers in `../launchers/` are allowed; they must reuse the installed browser and available server. Keep platform/CPU setup guidance in `../.agents/skills/todo-setup/SKILL.md` so another agent can set up a machine from the source folder.
-
-The owner expects Todo windows to group under Todo's own Ubuntu Dock icon, separately from Chrome. Verify the reported Wayland app ID or X11 window class against the launcher; standalone display mode alone does not prove correct Dock grouping.
+Lightweight operation is a primary requirement: minimize download size, idle memory, idle CPU and maintenance cost. Measure the complete runtime rather than only JavaScript entry sizes.
 
 Keep tasks as readable Obsidian Markdown so the owner and local assistants can inspect progress directly. Automatic rollover must update unfinished planned dates in the vault, keep deadlines fixed and retain readable history. Provide simple reminders with snooze/dismiss and a clear open-page delivery requirement. Prefer bounded daily/weekly/monthly repeat rules and useful completion history over extra services, accounts or collaboration features. Verify both fresh setup and representative populated vaults using temporary invented data.
 
@@ -19,8 +15,8 @@ Run the local server yourself and open the preview in the browser available to t
 Before making substantial visual changes, use the Product Design plugin's `get-context` skill when the visual source is unclear or no longer matches the current goal. When the user gives durable prototype-specific design feedback, preferences, or decisions, record them in `AGENTS.md`.
 
 Keep the main task workspace compact, including when there are few or no tasks. Use available width for task titles and existing controls, and keep empty states close to the list and composer.
-Prioritize full-screen laptop use. Give scheduled work and recent outcomes space when they exist, and keep the list and inline editor usable in smaller windows.
-Treat dark mode as a primary design and verification surface. Check contrast and surface separation in lists, editors, dialogs, and Mini Today.
+Prioritize full-screen laptop use. When My tasks has room for two columns, scroll the To do rows independently of the composer, Upcoming, and Recently completed. Keep the list and inline editor usable in smaller windows.
+Treat dark mode as a primary design and verification surface. Check contrast and surface separation in lists, editors, dialogs, Trash, and Settings. Keep the compact scenic workspace header and its controls fixed across views. Scroll the content below it independently, keep the active Settings section visible, and let long sidebar project lists scroll above the fixed navigation footer. Keep Search and Shortcuts lightly translucent and usable by keyboard.
 
 When implementing from a selected generated mock, treat that image as the source of truth for layout, component anatomy, density, spacing, color, typography, visible content, and hierarchy.
 

@@ -1,6 +1,6 @@
 # Todo's authenticated API
 
-Prefer the `todo` MCP tools. Todo serves them at `<PUBLIC_ORIGIN>/mcp` (Streamable HTTP, JSON responses) with an `Authorization: Bearer todo_pat_…` token the owner creates under **Settings → Connect an agent**. Settings shows the ready `claude mcp add` command. A password change revokes every token.
+Prefer the `todo` MCP tools. Todo serves them at `<PUBLIC_ORIGIN>/mcp` (Streamable HTTP, JSON responses) with an `Authorization: Bearer todo_pat_…` token the owner creates under **Settings → Agent access**. Settings shows the ready `claude mcp add` command. A password change revokes every token.
 
 Read the rest of this file only when MCP is unavailable and you write through a signed-in Todo browser tab. The UI uses these same routes. Do not construct a second `Vault` instance against live data.
 
@@ -17,7 +17,6 @@ In an authenticated browser page, same-origin requests use the HttpOnly `todo_se
 | Request | Response |
 | --- | --- |
 | `GET /api/workspace` | `{ tasks, projects, diagnostics, preferences, vaultName, vaultKey, now, today, version }` |
-| `GET /api/today` | Mini's compact `{ today, count, needsAttention, groups, reminders, ... }`: open tasks without a future plan date (plus due deadlines), grouped by project; no notes or completion history |
 | `GET /api/tasks/:id/versions` | Recovery versions `{ id, savedAt, title, notes }[]` for that task |
 
 There is no individual `GET /api/tasks/:id` route. Get a task by filtering `workspace.tasks` on its UUID. Tasks in a workspace include done and trashed records; apply the requested filters. Task objects expose `id`, `path`, `revision`, `notes`, `scheduled`, `due`, `status`, `projectId`, `completedAt`, `reminder`, `repeat`, `recurrenceSourceId` and `nextOccurrenceId`, among other metadata. Project objects include `id`, `path`, `revision` and `archived`. Read `diagnostics` before calling a listing complete or a recurring change fully successful.
@@ -62,7 +61,7 @@ Supported create/patch fields:
 | `title`, `status` | Nonempty title; status `inbox`, `todo`, `doing`, or `done` |
 | `scheduled`, `due` | `YYYY-MM-DD` or `null` to clear |
 | `projectId` | Existing non-archived project UUID, or `null` to unassign |
-| `trashed` | Boolean. `focus` is still accepted but no longer shown or used for ordering |
+| `trashed` | Boolean |
 | `tags` | Complete string array, up to 30 entries, each 1–40 characters; preserve existing tags when adding one |
 | `notes` | Entire Markdown body, max 500,000 characters; preserve unaffected content |
 | `reminder` | ISO timestamp with seconds and explicit `Z` or `±HH:MM`, or `null` |

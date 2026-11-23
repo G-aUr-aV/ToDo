@@ -1,19 +1,8 @@
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
-import path from "node:path";
 export default defineConfig({
   plugins: [
     react(),
-    {
-      name: "mini-route",
-      configureServer(server) {
-        server.middlewares.use((req, _res, next) => {
-          if (req.url === "/mini" || req.url === "/mini/")
-            req.url = "/mini.html";
-          next();
-        });
-      },
-    },
     {
       name: "development-csp",
       transformIndexHtml: {
@@ -28,15 +17,10 @@ export default defineConfig({
       },
     },
   ],
+  appType: "mpa",
   base: "./",
   build: {
     outDir: "dist/client",
-    rollupOptions: {
-      input: {
-        main: path.resolve("index.html"),
-        mini: path.resolve("mini.html"),
-      },
-    },
   },
   server: {
     host: "127.0.0.1",

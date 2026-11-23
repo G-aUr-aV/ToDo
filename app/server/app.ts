@@ -285,26 +285,21 @@ export async function createServer({
       maxAge: "1h",
       index: "index.html",
       setHeaders(res, filePath) {
-        if (/\.(html|webmanifest)$/.test(filePath))
+        if (/\.html$/.test(filePath))
           res.header("Cache-Control", "no-cache");
       },
     });
-    app.get("/mini", (_req, reply) =>
-      reply.header("Cache-Control", "no-cache").sendFile("mini.html"),
-    );
-    app.get("/mini/", (_req, reply) => reply.redirect("/mini"));
-    app.setNotFoundHandler((req, reply) =>
-      req.url.startsWith("/api/")
-        ? reply.code(404).send({
-            error: {
-              status: 404,
-              code: "NOT_FOUND",
-              message: "Unknown action.",
-            },
-          })
-        : reply.sendFile("index.html"),
-    );
   }
+  app.setNotFoundHandler((req, reply) => {
+    const api = req.url.startsWith("/api/");
+    return reply.code(404).send({
+      error: {
+        status: 404,
+        code: "NOT_FOUND",
+        message: api ? "Unknown action." : "Page not found.",
+      },
+    });
+  });
   // SSE must end before Fastify waits for active HTTP connections to drain.
   app.addHook("preClose", async () => {
     for (const close of streams) close();

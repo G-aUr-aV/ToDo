@@ -39,7 +39,6 @@ export const taskPatchSchema = z
     scheduled: date,
     due: date,
     projectId: uuid.nullable(),
-    focus: z.boolean(),
     trashed: z.boolean(),
     tags: z.array(z.string().trim().min(1).max(40)).max(30),
     notes: z.string().max(500_000),
@@ -83,7 +82,6 @@ export type Task = {
   due: string | null;
   project: string | null;
   projectId: string | null;
-  focus: boolean;
   trashed: boolean;
   tags: string[];
   createdAt: string;
@@ -123,12 +121,9 @@ export type Preferences = {
   timezone: string;
   weekStartsOn: 0 | 1;
   startPage: "tasks" | "done";
-  obsidianVault: string;
   autoRollover: boolean;
   issueLinkTemplate: string;
 };
-// Earlier versions had separate Today/Inbox/Upcoming/All pages; they are all Tasks now.
-const legacyStartPages = ["today", "inbox", "upcoming", "all", "projects"];
 export const preferenceSchema = z
   .object({
     timezone: z.string().refine((v) => {
@@ -140,11 +135,7 @@ export const preferenceSchema = z
       }
     }, "Choose a valid timezone."),
     weekStartsOn: z.union([z.literal(0), z.literal(1)]),
-    startPage: z.preprocess(
-      (v) => (legacyStartPages.includes(v as string) ? "tasks" : v),
-      z.enum(["tasks", "done"]),
-    ),
-    obsidianVault: z.string().max(160),
+    startPage: z.enum(["tasks", "done"]),
     autoRollover: z.boolean().default(true),
     issueLinkTemplate: z
       .string()
@@ -161,7 +152,6 @@ export const defaultPreferences: Preferences = {
   timezone: "Asia/Kolkata",
   weekStartsOn: 1,
   startPage: "tasks",
-  obsidianVault: "",
   autoRollover: true,
   issueLinkTemplate: "",
 };
@@ -194,9 +184,7 @@ export class AppError extends Error {
 }
 export {
   active,
-  inToday,
   inNow,
   isLater,
   byPriority,
-  projectFor,
 } from "./task-views";

@@ -138,9 +138,8 @@ export function NotificationPreference() {
   return (
     <div className="notification-preference">
       <p>
-        Reminders always appear in Todo and Mini. Keep either window open;
-        sleeping devices catch up when opened. Browser alerts need HTTPS or
-        localhost.
+        Keep Todo open to receive reminders. Missed alerts catch up when you return.
+        Browser alerts require HTTPS or localhost.
       </p>
       {permission === "default" && (
         <Button

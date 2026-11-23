@@ -24,14 +24,6 @@ async function fixture(t: test.TestContext, withClient = false) {
       path.join(clientDir, "index.html"),
       "<title>Full app</title>",
     );
-    await fs.writeFile(
-      path.join(clientDir, "mini.html"),
-      "<title>Mini Today</title>",
-    );
-    await fs.writeFile(
-      path.join(clientDir, "mini.webmanifest"),
-      JSON.stringify({ id: "/mini", start_url: "/mini" }),
-    );
   }
   const app = await createServer({
     vault,
@@ -146,14 +138,14 @@ test("HTTP mutations require revisions and reject stale updates", async (t) => {
     method: "PATCH",
     url: "/api/tasks/" + task.id,
     headers: f.headers,
-    payload: { focus: true },
+    payload: { title: "Updated task" },
   });
   assert.equal(missing.statusCode, 428);
   const updated = await f.app.inject({
     method: "PATCH",
     url: "/api/tasks/" + task.id,
     headers: { ...f.headers, "if-match": task.revision },
-    payload: { focus: true },
+    payload: { title: "Updated task" },
   });
   assert.equal(updated.statusCode, 200);
   const stale = await f.app.inject({
@@ -163,7 +155,72 @@ test("HTTP mutations require revisions and reject stale updates", async (t) => {
     payload: { title: "Old write" },
   });
   assert.equal(stale.statusCode, 409);
-  assert.equal(stale.json().error.current.focus, true);
+  assert.equal(stale.json().error.current.title, "Updated task");
+});
+test("project creation and renaming reserve the same names across HTTP and MCP", async (t) => {
+  const f = await fixture(t);
+  const { token } = await f.auth.createToken("project test");
+  const create = (title: string, requestId = randomUUID()) => f.app.inject({
+    method: "POST",
+    url: "/api/projects",
+    headers: f.headers,
+    payload: { requestId, title },
+  });
+  const edit = (project: { id: string; revision: string }, patch: object) => f.app.inject({
+    method: "PATCH",
+    url: `/api/projects/${project.id}`,
+    headers: { ...f.headers, "if-match": project.revision },
+    payload: patch,
+  });
+  const mcpCreate = (title: string) => f.app.inject({
+    method: "POST",
+    url: "/mcp",
+    headers: {
+      host: f.headers.host,
+      authorization: `Bearer ${token}`,
+      "content-type": "application/json",
+    },
+    payload: {
+      jsonrpc: "2.0",
+      id: 1,
+      method: "tools/call",
+      params: { name: "add_project", arguments: { title, description: "" } },
+    },
+  });
+
+  const requestId = randomUUID();
+  const original = await create("Café  Ops", requestId);
+  assert.equal(original.statusCode, 200);
+  const project = original.json();
+  const retry = await create("Café  Ops", requestId);
+  assert.equal(retry.statusCode, 200);
+  assert.equal(retry.json().id, project.id);
+  assert.equal((await edit(project, { archived: true })).statusCode, 200);
+
+  const other = await create("Planning");
+  assert.equal(other.statusCode, 200);
+  const proposedName = "  CAFE\u0301\tOPS  ";
+  const rename = await edit(other.json(), { title: proposedName });
+  assert.equal(rename.statusCode, 409);
+  const expected = { status: 409, code: "PROJECT_EXISTS", message: 'A project named "Café  Ops" already exists.' };
+  assert.deepEqual(rename.json().error, expected);
+  const duplicate = await create(proposedName);
+  assert.equal(duplicate.statusCode, 409);
+  assert.deepEqual(duplicate.json().error, expected);
+  const mcpDuplicate = await mcpCreate(proposedName);
+  assert.equal(mcpDuplicate.statusCode, 200);
+  assert.equal(mcpDuplicate.json().result.isError, true);
+  assert.equal(mcpDuplicate.json().result.content[0].text, expected.message);
+  assert.equal((await edit(other.json(), { title: "PLANNING" })).statusCode, 200);
+
+  const [httpRace, mcpRace] = await Promise.all([
+    create("Shared project"),
+    mcpCreate("shared   project"),
+  ]);
+  assert.ok([200, 409].includes(httpRace.statusCode));
+  assert.equal(mcpRace.statusCode, 200);
+  assert.equal(httpRace.statusCode === 200, Boolean(mcpRace.json().result.isError));
+  assert.equal((await f.vault.snapshot()).projects.length, 3);
 });
 test("request validation rejects unknown fields, traversal identities and invalid dates", async (t) => {
   const f = await fixture(t);
@@ -238,43 +295,17 @@ test("health and readiness report process and vault state", async (t) => {
   });
   assert.equal(r.json().ready, true);
 });
-test("Today summary is authenticated and omits Markdown bodies", async (t) => {
-  const f = await fixture(t);
-  assert.equal(
-    (
-      await f.app.inject({
-        url: "/api/today",
-        headers: { host: "localhost:4310" },
-      })
-    ).statusCode,
-    401,
-  );
-  await f.vault.createTask({
-    requestId: randomUUID(),
-    title: "Today endpoint task",
-    due: "2020-01-01",
-    notes: "Private body must not be in the mini payload",
-  });
-  const res = await f.app.inject({ url: "/api/today", headers: f.headers });
-  assert.equal(res.statusCode, 200);
-  assert.equal(res.headers["cache-control"], "no-store");
-  assert.equal(res.json().count, 1);
-  assert.doesNotMatch(res.body, /Private body|"notes"/);
-});
-test("Mini deep links and install manifest are served without stale shell caching", async (t) => {
+test("The web root serves Todo and unknown paths return 404", async (t) => {
   const f = await fixture(t, true);
-  const mini = await f.app.inject({ url: "/mini", headers: f.headers });
-  assert.equal(mini.statusCode, 200);
-  assert.match(mini.body, /Mini Today/);
-  assert.equal(mini.headers["cache-control"], "no-cache");
-  const manifest = await f.app.inject({
-    url: "/mini.webmanifest",
-    headers: f.headers,
-  });
-  assert.equal(manifest.json().start_url, "/mini");
-  assert.equal(manifest.headers["cache-control"], "no-cache");
-  const redirect = await f.app.inject({ url: "/mini/", headers: f.headers });
-  assert.equal(redirect.headers.location, "/mini");
+  const root = await f.app.inject({ url: "/", headers: f.headers });
+  assert.equal(root.statusCode, 200);
+  assert.match(root.body, /Full app/);
+  assert.equal(root.headers["cache-control"], "no-cache");
+  for (const url of ["/missing", "/missing.html", "/api/missing"]) {
+    const response = await f.app.inject({ url, headers: f.headers });
+    assert.equal(response.statusCode, 404);
+    assert.equal(response.json().error.code, "NOT_FOUND");
+  }
 });
 
 test("malformed/oversized JSON receives a bounded client error", async (t) => {

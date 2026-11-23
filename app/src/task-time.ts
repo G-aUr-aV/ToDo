@@ -1,4 +1,4 @@
-// Small, dependency-free helpers shared by the full app and Mini.
+// Small, dependency-free helpers for reminders and planning.
 export type ReminderTask = {
   id: string;
   title: string;

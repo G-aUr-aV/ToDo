@@ -1,7 +1,7 @@
 {
   "name": "todo-daylight",
   "version": "0.1.0",
-  "description": "A lightweight, self-hosted task app backed by an Obsidian vault, with Mini Today and Chrome app launchers.",
+  "description": "A lightweight, self-hosted task app backed by an Obsidian vault.",
   "author": "Todo contributors",
   "license": "MIT",
   "private": true,

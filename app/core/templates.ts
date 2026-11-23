@@ -8,7 +8,6 @@ due:
 reminder_at:
 repeat:
 project:
-focus: false
 trashed: false
 tags: []
 ---

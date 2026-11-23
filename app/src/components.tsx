@@ -147,12 +147,16 @@ export function Modal({
   onClose,
   wide = false,
   closeDisabled = false,
+  className = "",
+  closeKey,
 }: {
   title: string;
   children: ReactNode;
   onClose: () => void;
   wide?: boolean;
   closeDisabled?: boolean;
+  className?: string;
+  closeKey?: string;
 }) {
   const titleId = useId();
   const ref = useRef<HTMLDivElement>(null);
@@ -181,9 +185,9 @@ export function Modal({
         ".date-shortcuts button,.action-menu button,.modal-actions button",
       ) ??
       dialog.querySelector<HTMLElement>("button:not([disabled])");
-    (first ?? dialog).focus();
+    (first ?? dialog).focus({ preventScroll: true });
     const key = (event: KeyboardEvent) => {
-      if (event.key === "Escape") {
+      if (!event.isComposing && (event.key === "Escape" || event.key === closeKey)) {
         event.preventDefault();
         event.stopPropagation();
         close.current();
@@ -210,8 +214,9 @@ export function Modal({
       dialog.removeEventListener("keydown", key);
       queueMicrotask(() => {
         sync();
-        if (before?.isConnected && before !== document.body) before.focus();
-        else document.querySelector<HTMLElement>("#main h1")?.focus();
+        if (document.activeElement !== document.body && !dialog.contains(document.activeElement)) return;
+        if (before?.isConnected && before !== document.body) before.focus({ preventScroll: true });
+        else document.getElementById("main")?.focus({ preventScroll: true });
       });
     };
   }, []);
@@ -224,7 +229,7 @@ export function Modal({
     >
       <div
         ref={ref}
-        className={"modal " + (wide ? "wide" : "")}
+        className={`modal ${wide ? "wide" : ""} ${className}`}
         role="dialog"
         aria-modal="true"
         aria-labelledby={titleId}

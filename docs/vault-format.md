@@ -39,7 +39,6 @@ status: todo
 scheduled: 2026-10-14
 due: 2026-10-15
 project: "[[Projects/Work]]"
-focus: true
 trashed: false
 tags: [design]
 created_at: 2026-10-14T12:00:00Z
@@ -64,7 +63,7 @@ Check the mobile flow and simplify the first screen.
 | `status` | `inbox`, `todo`, `doing`, `done` |
 | `scheduled`, `due` | Nullable calendar dates `YYYY-MM-DD`, interpreted in the app's configured timezone |
 | `project` | Optional quoted vault-relative wiki link to one project note |
-| `focus`, `trashed` | Booleans, default false; focus only changes ordering within Today |
+| `trashed` | Boolean, defaults to false |
 | timestamps | UTC instants. `completed_at` is set when completed and cleared when reopened |
 | body | User-owned Markdown; subtask checkboxes do not implicitly complete the parent |
 

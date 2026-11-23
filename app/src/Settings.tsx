@@ -1,6 +1,6 @@
 import { readStored, writeStored } from "./storage";
 import type { Appearance } from "./appearance";
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useId, useRef, useState, type ReactNode } from "react";
 
 import type { Snapshot, Preferences } from "../core/model";
 import type { ImportItem, ImportPreview } from "../core/vault";
@@ -10,10 +10,27 @@ import { Banner, Button, Empty, Field, Icon, Modal, copyText, download, errorMes
 type TokenInfo = { id: string; name: string; createdAt: string; lastUsedAt: string | null };
 type Created = { token: string; info: TokenInfo; endpoint: string };
 
-function Section({ title, lead, children }: { title: string; lead?: string; children: ReactNode }) {
+const sections = [
+  ["appearance", "Appearance", "sun"],
+  ["planning", "Planning", "calendar-week"],
+  ["issue-links", "Issue links", "link"],
+  ["reminders", "Reminders", "bell"],
+  ["agents", "Agent access", "key"],
+  ["vault", "Vault & Obsidian", "obsidian"],
+  ["data", "Data", "archive"],
+  ["account", "Account", "lock"],
+] as const;
+type SectionId = (typeof sections)[number][0];
+
+function Section({ id, title, lead, children }: {
+  id: SectionId;
+  title: string;
+  lead?: string;
+  children: ReactNode;
+}) {
   return (
     <section className="settings-section">
-      <h2>{title}</h2>
+      <h2 id={`settings-${id}`} tabIndex={-1}>{title}</h2>
       {lead && <p className="lead">{lead}</p>}
       <div className="settings-card">{children}</div>
     </section>
@@ -41,22 +58,46 @@ function Segmented({
   onChange: (v: string) => void;
   label: string;
 }) {
+  const name = useId();
   return (
     <div className="segmented" role="radiogroup" aria-label={label}>
-      {options.map(([v, text]) => (
-        <button
-          key={v}
-          type="button"
-          role="radio"
-          aria-checked={value === v}
-          onClick={() => onChange(v)}
-        >
-          {text}
-        </button>
+      {options.map(([option, text]) => (
+        <label key={option}>
+          <input
+            type="radio"
+            name={name}
+            checked={value === option}
+            onChange={() => onChange(option)}
+          />
+          <span>{text}</span>
+        </label>
       ))}
     </div>
   );
 }
+
+function ThemePicker({ value, onChange }: { value: string; onChange: (theme: string) => void }) {
+  return (
+    <fieldset className="theme-picker">
+      <legend>Theme</legend>
+      <div className="theme-options">
+        {([["light", "Light"], ["dark", "Dark"], ["system", "System"]] as const).map(([theme, label]) => (
+          <label className="theme-option" key={theme}>
+            <input type="radio" name="todo-theme" checked={value === theme} onChange={() => onChange(theme)} />
+            <span className="theme-tile">
+              <span className={`theme-sample ${theme}`} aria-hidden="true">
+                <span className="theme-sample-sidebar" />
+                <span className="theme-sample-list"><i /><i /><i /></span>
+              </span>
+              <span className="theme-option-label"><span className="theme-dot" />{label}</span>
+            </span>
+          </label>
+        ))}
+      </div>
+    </fieldset>
+  );
+}
+
 function CopyField({ label, value, onCopied }: { label: string; value: string; onCopied: () => void }) {
   return (
     <div className="copy-field">
@@ -234,278 +275,331 @@ export function Settings({
       setBusy(false);
     }
   }
+  const navigation = useRef<HTMLElement>(null);
+  const [activeSection, setActiveSection] = useState<SectionId>("appearance");
+  useEffect(() => {
+    const nav = navigation.current;
+    const scroller = nav?.closest(".workspace-scroll");
+    if (!nav || !scroller) return;
+    const headings = sections.map(([id]) => ({
+      id,
+      heading: document.getElementById(`settings-${id}`)!,
+    })).reverse();
+    let frame = 0;
+    const update = () => {
+      const top = scroller.getBoundingClientRect().top;
+      const offset = parseFloat(getComputedStyle(scroller).scrollPaddingTop) || 0;
+      const atBottom = scroller.scrollTop > 0 && scroller.scrollHeight - scroller.clientHeight - scroller.scrollTop < 2;
+      const current = atBottom ? headings[0] : headings.find(({ heading }) =>
+        heading.getBoundingClientRect().top <= top + offset + 12,
+      );
+      setActiveSection(current?.id ?? "appearance");
+    };
+    const schedule = () => {
+      cancelAnimationFrame(frame);
+      frame = requestAnimationFrame(update);
+    };
+    const resize = new ResizeObserver(schedule);
+    resize.observe(scroller);
+    const content = nav.nextElementSibling;
+    if (content) resize.observe(content);
+    scroller.addEventListener("scroll", schedule, { passive: true });
+    update();
+    return () => {
+      cancelAnimationFrame(frame);
+      resize.disconnect();
+      scroller.removeEventListener("scroll", schedule);
+    };
+  }, []);
+  useEffect(() => {
+    const nav = navigation.current;
+    const selected = nav?.querySelector('[aria-current="location"]');
+    if (!nav || !selected || nav.scrollWidth <= nav.clientWidth) return;
+    const outer = nav.getBoundingClientRect();
+    const option = selected.getBoundingClientRect();
+    if (option.left < outer.left) nav.scrollLeft -= outer.left - option.left + 4;
+    else if (option.right > outer.right) nav.scrollLeft += option.right - outer.right + 4;
+  }, [activeSection]);
   const setup = created ? agentSetup(agent, created) : null;
   return (
-    <div className="settings">
-      <Section
-        title="Connect an agent"
-        lead="Let Claude Code, Codex, Cursor or any MCP client find, update and close tasks. Use one token per agent; each is shown once."
-      >
-        {created ? (
-          <div className="token-created">
-            <Banner title="Connect your agent now" kind="success">
-              Copy what you need before leaving: the token isn't shown again.
-            </Banner>
-            <Segmented
-              label="Agent"
-              value={agent}
-              options={agents.map((a) => [a.id, a.name])}
-              onChange={(v) => setAgent(v as AgentId)}
-            />
-            <p className="setup-hint">{setup!.hint}</p>
-            {setup!.fields.map(([label, value]) => (
-              <CopyField key={label} label={label} value={value} onCopied={() => onNotice(label + " copied")} />
-            ))}
-            {agent !== "other" && (
-              <CopyField label="Token" value={created.token} onCopied={() => onNotice("Token copied")} />
-            )}
-            <Button kind="ghost" onClick={() => setCreated(null)}>
-              Done
-            </Button>
-          </div>
-        ) : (
-          <form
-            className="token-form"
-            onSubmit={(e) => {
-              e.preventDefault();
-              void createToken();
+    <div className="settings-layout">
+      <nav ref={navigation} className="settings-navigation" aria-label="Settings sections">
+        {sections.map(([id, label, icon]) => (
+          <button
+            key={id}
+            type="button"
+            aria-current={activeSection === id ? "location" : undefined}
+            onClick={() => {
+              const heading = document.getElementById(`settings-${id}`);
+              heading?.focus({ preventScroll: true });
+              heading?.scrollIntoView({ block: "start" });
             }}
           >
-            <input
-              aria-label="Agent name"
-              value={tokenName}
-              maxLength={60}
-              onChange={(e) => setTokenName(e.target.value)}
-            />
-            <Button icon="key" disabled={busy}>
-              Create token
-            </Button>
-          </form>
-        )}
-        {tokens.map((t) => (
-          <div className="token-row" key={t.id}>
-            <Icon name="key" tone="muted" />
-            <strong>{t.name}</strong>
-            <span className="muted">
-              {new Date(t.createdAt).toLocaleDateString()} · {ago(t.lastUsedAt)}
-            </span>
-            <Button kind="ghost" onClick={() => void revoke(t.id)}>
-              Revoke
-            </Button>
-          </div>
+            <Icon name={icon} />{label}
+          </button>
         ))}
-      </Section>
-      {prefError && (
-        <Banner title="Could not save settings" kind="danger">
-          {prefError}
-        </Banner>
-      )}
-      <Section title="Issue links" lead="Keys like APP-1234 in task names open in your tracker.">
-        <Row
-          label="Link address"
-          hint={
-            linkValid(preferences.issueLinkTemplate.trim())
-              ? "Use {key} where the issue key goes."
-              : "Not saved yet: start with https:// and include {key}."
-          }
+      </nav>
+      <div className="settings">
+        {prefError && (
+          <Banner title="Could not save settings" kind="danger">
+            {prefError}
+          </Banner>
+        )}
+        <Section id="appearance" title="Appearance" lead="Theme, text size and shortcuts are saved in this browser.">
+          <ThemePicker value={appearance.theme} onChange={(theme) => setAppearance({ ...appearance, theme })} />
+          <Row label="Text size">
+            <Segmented
+              label="Text size"
+              value={appearance.text}
+              options={[
+                ["default", "Default"],
+                ["large", "Larger"],
+              ]}
+              onChange={(text) => setAppearance({ ...appearance, text })}
+            />
+          </Row>
+          <Row label="Motion">
+            <Segmented
+              label="Motion"
+              value={appearance.motion}
+              options={[
+                ["system", "System"],
+                ["reduced", "Reduced"],
+              ]}
+              onChange={(motion) => setAppearance({ ...appearance, motion })}
+            />
+          </Row>
+          <Row label="Single-key shortcuts" hint="N, J/K, X, C, E. They pause while you type.">
+            <label className="switch">
+              <input
+                type="checkbox"
+                aria-label="Single-key shortcuts"
+                checked={appearance.shortcuts}
+                onChange={(e) => setAppearance({ ...appearance, shortcuts: e.target.checked })}
+              />
+              <span />
+            </label>
+          </Row>
+        </Section>
+        <Section id="planning" title="Planning">
+          <Row label="Open on" hint="The page Todo shows when it starts.">
+            <Segmented
+              label="Open on"
+              value={preferences.startPage}
+              options={[
+                ["tasks", "Tasks"],
+                ["done", "Done"],
+              ]}
+              onChange={(v) => edit({ startPage: v as Preferences["startPage"] })}
+            />
+          </Row>
+          <Row label="Carry unfinished tasks forward" hint="Past plan dates move to today. Deadlines stay fixed.">
+            <label className="switch">
+              <input
+                type="checkbox"
+                aria-label="Carry unfinished tasks forward"
+                checked={preferences.autoRollover}
+                onChange={(e) => edit({ autoRollover: e.target.checked })}
+              />
+              <span />
+            </label>
+          </Row>
+          <Row label="Timezone" hint="Days, Done groups and midnight follow this.">
+            <input
+              aria-label="Timezone"
+              list="timezones"
+              value={preferences.timezone}
+              onChange={(e) => edit({ timezone: e.target.value })}
+            />
+            <datalist id="timezones">
+              {Intl.supportedValuesOf("timeZone").map((zone) => (
+                <option key={zone} value={zone} />
+              ))}
+            </datalist>
+          </Row>
+          <Row label="Week starts on">
+            <Segmented
+              label="Week starts on"
+              value={String(preferences.weekStartsOn)}
+              options={[
+                ["1", "Monday"],
+                ["0", "Sunday"],
+              ]}
+              onChange={(v) => edit({ weekStartsOn: Number(v) as 0 | 1 })}
+            />
+          </Row>
+        </Section>
+        <Section id="issue-links" title="Issue links" lead="Keys like APP-1234 in task names open in your tracker.">
+          <Row
+            label="Link address"
+            hint={
+              linkValid(preferences.issueLinkTemplate.trim())
+                ? "Use {key} where the issue key goes."
+                : "Not saved yet: start with https:// and include {key}."
+            }
+          >
+            <input
+              aria-label="Issue link address"
+              placeholder="https://yourcompany.atlassian.net/browse/{key}"
+              value={preferences.issueLinkTemplate}
+              onChange={(e) => edit({ issueLinkTemplate: e.target.value })}
+            />
+          </Row>
+        </Section>
+        <Section id="reminders" title="Reminders">
+          <div className="setting-row">
+            <NotificationPreference />
+          </div>
+        </Section>
+        <Section
+          id="agents"
+          title="Agent access"
+          lead="Let Claude Code, Codex, Cursor or any MCP client find, update and close tasks. Use one token per agent; each is shown once."
         >
-          <input
-            aria-label="Issue link address"
-            placeholder="https://yourcompany.atlassian.net/browse/{key}"
-            value={preferences.issueLinkTemplate}
-            onChange={(e) => edit({ issueLinkTemplate: e.target.value })}
-          />
-        </Row>
-      </Section>
-      <Section title="Planning">
-        <Row label="Open on" hint="The page Todo shows when it starts.">
-          <Segmented
-            label="Open on"
-            value={preferences.startPage}
-            options={[
-              ["tasks", "Tasks"],
-              ["done", "Done"],
-            ]}
-            onChange={(v) => edit({ startPage: v as Preferences["startPage"] })}
-          />
-        </Row>
-        <Row label="Carry unfinished tasks forward" hint="Past plan dates move to today. Deadlines stay fixed.">
-          <label className="switch">
+          {created ? (
+            <div className="token-created">
+              <Banner title="Connect your agent now" kind="success">
+                Copy what you need before leaving: the token isn't shown again.
+              </Banner>
+              <Segmented
+                label="Agent"
+                value={agent}
+                options={agents.map((a) => [a.id, a.name])}
+                onChange={(v) => setAgent(v as AgentId)}
+              />
+              <p className="setup-hint">{setup!.hint}</p>
+              {setup!.fields.map(([label, value]) => (
+                <CopyField key={label} label={label} value={value} onCopied={() => onNotice(label + " copied")} />
+              ))}
+              {agent !== "other" && (
+                <CopyField label="Token" value={created.token} onCopied={() => onNotice("Token copied")} />
+              )}
+              <Button kind="ghost" onClick={() => setCreated(null)}>
+                Done
+              </Button>
+            </div>
+          ) : (
+            <form
+              className="token-form"
+              onSubmit={(e) => {
+                e.preventDefault();
+                void createToken();
+              }}
+            >
+              <input
+                aria-label="Agent name"
+                value={tokenName}
+                maxLength={60}
+                onChange={(e) => setTokenName(e.target.value)}
+              />
+              <Button icon="key" disabled={busy}>
+                Create token
+              </Button>
+            </form>
+          )}
+          {tokens.map((t) => (
+            <div className="token-row" key={t.id}>
+              <Icon name="key" tone="muted" />
+              <strong>{t.name}</strong>
+              <span className="muted">
+                {new Date(t.createdAt).toLocaleDateString()} · {ago(t.lastUsedAt)}
+              </span>
+              <Button kind="ghost" onClick={() => void revoke(t.id)}>
+                Revoke
+              </Button>
+            </div>
+          ))}
+        </Section>
+        <Section id="vault" title="Vault &amp; Obsidian">
+          <Row label="Vault" hint="Task notes live in this folder on the server.">
+            <span className="read-value">{s.vaultName}</span>
+          </Row>
+          <Row label="Obsidian on this device" hint="The vault's name in this device's Obsidian.">
             <input
-              type="checkbox"
-              aria-label="Carry unfinished tasks forward"
-              checked={preferences.autoRollover}
-              onChange={(e) => edit({ autoRollover: e.target.checked })}
+              aria-label="Obsidian vault name"
+              placeholder="Registered vault name"
+              value={obsidian}
+              onChange={(e) => setObsidian(e.target.value)}
+              onBlur={() => {
+                writeStored("todo:obsidian:" + s.vaultKey, obsidian.trim());
+              }}
             />
-            <span />
-          </label>
-        </Row>
-        <Row label="Timezone" hint="Days, Done groups and midnight follow this.">
-          <input
-            aria-label="Timezone"
-            list="timezones"
-            value={preferences.timezone}
-            onChange={(e) => edit({ timezone: e.target.value })}
-          />
-          <datalist id="timezones">
-            {Intl.supportedValuesOf("timeZone").map((zone) => (
-              <option key={zone} value={zone} />
-            ))}
-          </datalist>
-        </Row>
-        <Row label="Week starts on">
-          <Segmented
-            label="Week starts on"
-            value={String(preferences.weekStartsOn)}
-            options={[
-              ["1", "Monday"],
-              ["0", "Sunday"],
-            ]}
-            onChange={(v) => edit({ weekStartsOn: Number(v) as 0 | 1 })}
-          />
-        </Row>
-      </Section>
-      <Section title="Appearance" lead="Saved on this device.">
-        <Row label="Theme">
-          <Segmented
-            label="Theme"
-            value={appearance.theme}
-            options={[
-              ["light", "Light"],
-              ["dark", "Dark"],
-              ["system", "System"],
-            ]}
-            onChange={(theme) => setAppearance({ ...appearance, theme })}
-          />
-        </Row>
-        <Row label="Text size">
-          <Segmented
-            label="Text size"
-            value={appearance.text}
-            options={[
-              ["default", "Default"],
-              ["large", "Larger"],
-            ]}
-            onChange={(text) => setAppearance({ ...appearance, text })}
-          />
-        </Row>
-        <Row label="Motion">
-          <Segmented
-            label="Motion"
-            value={appearance.motion}
-            options={[
-              ["system", "System"],
-              ["reduced", "Reduced"],
-            ]}
-            onChange={(motion) => setAppearance({ ...appearance, motion })}
-          />
-        </Row>
-        <Row label="Single-key shortcuts" hint="N, J/K, X, C, E. They pause while you type.">
-          <label className="switch">
-            <input
-              type="checkbox"
-              aria-label="Single-key shortcuts"
-              checked={appearance.shortcuts}
-              onChange={(e) => setAppearance({ ...appearance, shortcuts: e.target.checked })}
-            />
-            <span />
-          </label>
-        </Row>
-      </Section>
-      <Section title="Reminders">
-        <div className="setting-row">
-          <NotificationPreference />
-        </div>
-      </Section>
-      <Section title="Vault & Obsidian">
-        <Row label="Vault" hint="Task notes live in this folder on the server.">
-          <span className="read-value">{s.vaultName}</span>
-        </Row>
-        <Row label="Obsidian on this device" hint="The vault's name in this device's Obsidian.">
-          <input
-            aria-label="Obsidian vault name"
-            placeholder="Registered vault name"
-            value={obsidian}
-            onChange={(e) => setObsidian(e.target.value)}
-            onBlur={() => {
-              writeStored("todo:obsidian:" + s.vaultKey, obsidian.trim());
+          </Row>
+          <Row label="Vault status" hint="Notes Todo can't read, duplicates and notes to adopt.">
+            <Button kind="secondary" onClick={() => onNavigate("diagnostics")}>
+              Review
+            </Button>
+          </Row>
+        </Section>
+        <Section id="data" title="Data">
+          <Row label="Import task notes" hint="Preview before anything is added.">
+            <Button kind="secondary" icon="upload" onClick={() => onNavigate("import")}>
+              Choose files
+            </Button>
+          </Row>
+          <Row label="Export" hint="Doesn't replace a full backup of the vault and state folders.">
+            <span className="button-pair">
+              <Button kind="secondary" icon="download" disabled={busy} onClick={() => void exportMarkdown()}>
+                Markdown
+              </Button>
+              <Button
+                kind="secondary"
+                onClick={() =>
+                  download(
+                    "Todo-tasks.json",
+                    JSON.stringify({ schemaVersion: 1, tasks: s.tasks, projects: s.projects }, null, 2),
+                    "application/json",
+                  )
+                }
+              >
+                JSON
+              </Button>
+            </span>
+          </Row>
+          <Row label="Earlier versions" hint="Todo keeps the previous note before each edit.">
+            <select
+              aria-label="Choose a task to see earlier versions"
+              value=""
+              onChange={(e) => e.target.value && void onHistory(e.target.value)}
+            >
+              <option value="">Choose a task</option>
+              {s.tasks.map((t) => (
+                <option key={t.id} value={t.id}>
+                  {t.title}
+                </option>
+              ))}
+            </select>
+          </Row>
+          <Row label="Archived projects">
+            <Button kind="secondary" icon="archive" onClick={() => onNavigate("archived")}>
+              Open
+            </Button>
+          </Row>
+        </Section>
+        <Section id="account" title="Account">
+          <Row label="Password" hint="Changing it signs out other devices and disconnects agents.">
+            <Button kind="secondary" icon="lock" onClick={() => setPassword(true)}>
+              Change
+            </Button>
+          </Row>
+          <Row label="Sign out" hint={`Version ${s.version}. You stay signed in for a week on each device.`}>
+            <Button kind="secondary" onClick={onLogout}>
+              Sign out
+            </Button>
+          </Row>
+        </Section>
+        {password && (
+          <PasswordDialog
+            onClose={() => setPassword(false)}
+            onSaved={() => {
+              setPassword(false);
+              setTokens([]);
+              setCreated(null);
+              onNotice("Password changed. Other sessions and agents were signed out.");
             }}
           />
-        </Row>
-        <Row label="Vault status" hint="Notes Todo can't read, duplicates and notes to adopt.">
-          <Button kind="secondary" onClick={() => onNavigate("diagnostics")}>
-            Review
-          </Button>
-        </Row>
-      </Section>
-      <Section title="Data">
-        <Row label="Import task notes" hint="Preview before anything is added.">
-          <Button kind="secondary" icon="upload" onClick={() => onNavigate("import")}>
-            Choose files
-          </Button>
-        </Row>
-        <Row label="Export" hint="Doesn't replace a full backup of the vault and state folders.">
-          <span className="button-pair">
-            <Button kind="secondary" icon="download" disabled={busy} onClick={() => void exportMarkdown()}>
-              Markdown
-            </Button>
-            <Button
-              kind="secondary"
-              onClick={() =>
-                download(
-                  "Todo-tasks.json",
-                  JSON.stringify({ schemaVersion: 1, tasks: s.tasks, projects: s.projects }, null, 2),
-                  "application/json",
-                )
-              }
-            >
-              JSON
-            </Button>
-          </span>
-        </Row>
-        <Row label="Earlier versions" hint="Todo keeps the previous note before each edit.">
-          <select
-            aria-label="Choose a task to see earlier versions"
-            value=""
-            onChange={(e) => e.target.value && void onHistory(e.target.value)}
-          >
-            <option value="">Choose a task</option>
-            {s.tasks.map((t) => (
-              <option key={t.id} value={t.id}>
-                {t.title}
-              </option>
-            ))}
-          </select>
-        </Row>
-        <Row label="Archived projects">
-          <Button kind="secondary" icon="archive" onClick={() => onNavigate("archived")}>
-            Open
-          </Button>
-        </Row>
-      </Section>
-      <Section title="Account">
-        <Row label="Password" hint="Changing it signs out other devices and disconnects agents.">
-          <Button kind="secondary" icon="lock" onClick={() => setPassword(true)}>
-            Change
-          </Button>
-        </Row>
-        <Row label="Sign out" hint={`Version ${s.version}. You stay signed in for a week on each device.`}>
-          <Button kind="secondary" onClick={onLogout}>
-            Sign out
-          </Button>
-        </Row>
-      </Section>
-      {password && (
-        <PasswordDialog
-          onClose={() => setPassword(false)}
-          onSaved={() => {
-            setPassword(false);
-            setTokens([]);
-            setCreated(null);
-            onNotice("Password changed. Other sessions and agents were signed out.");
-          }}
-        />
-      )}
+        )}
+      </div>
     </div>
   );
 }

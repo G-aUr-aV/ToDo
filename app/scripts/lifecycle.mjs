@@ -80,13 +80,12 @@ export async function buildNeeded() {
     const outputs = await Promise.all([
       fs.stat(path.join(appDir, "dist/server/main.cjs")),
       fs.stat(path.join(appDir, "dist/client/index.html")),
-      fs.stat(path.join(appDir, "dist/client/mini.html")),
     ]);
     built = Math.min(...outputs.map((s) => s.mtimeMs));
   } catch {
     return true;
   }
-  const sources = ["core", "server", "src", "public", "scripts/build-node.mjs", "package.json", "package-lock.json", "index.html", "mini.html", "vite.config.ts"];
+  const sources = ["core", "server", "src", "public", "scripts/build-node.mjs", "package.json", "package-lock.json", "index.html", "vite.config.ts"];
   const newer = async (file) => {
     const stat = await fs.stat(file);
     if (stat.mtimeMs > built) return true;

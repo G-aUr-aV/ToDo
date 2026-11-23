@@ -1,6 +1,6 @@
 # UX guide
 
-Todo helps one person capture work, finish it and keep a readable record of what was done in Obsidian files. The interface is calm and keyboard-first: one task list, an always-visible capture line, notes one click away and controls that appear only when needed. The [revamp design](superpowers/specs/2026-11-21-todo-revamp-design.md) is the reference. Full Todo and Mini Today run in a browser or separate Chrome app windows connected to one vault server.
+Todo helps one person capture work, finish it and keep a readable record of what was done in Obsidian files. The interface is calm and keyboard-first: one task list, an always-visible capture line, notes one click away and controls that appear only when needed. The [revamp design](superpowers/specs/2026-11-21-todo-revamp-design.md) is the reference. Todo runs in a browser connected to one vault server.
 
 ## Views
 
@@ -20,11 +20,9 @@ Type in the capture line and press Enter; focus stays for the next task, and pas
 
 Autosave reports Saving and then Saved only after the server acknowledges the write. Unsaved drafts stay on the device. A failed save retains the draft. If Obsidian changes the same note while it is dirty, saving pauses and offers **Copy draft** or **Discard draft & reload**. Discard loads the latest note without writing. Revision checks protect completion, Undo and recovery as well as editing.
 
-Trash is reversible. Completing a repeating task keeps the completed note and creates one linked future occurrence. Daily, weekly and monthly intervals are supported. Reminders offer snooze/dismiss and catch up after reconnect; either Todo or Mini must remain open. Browser suspension, device sleep and server downtime can delay alerts.
+Trash shows where each removed task will return and provides a Restore action. Completing a repeating task keeps the completed note and creates one linked future occurrence. Daily, weekly and monthly intervals are supported. Reminders offer snooze/dismiss and catch up after reconnect; Todo must remain open. Browser suspension, device sleep and server downtime can delay alerts.
 
-## Mini and Obsidian
-
-[Mini Today](mini-today.md) keeps a compact copy of the Tasks list (without Later) with completion/Undo and links to full task details. Adding, rescheduling, notes and settings stay in the full workspace. Mini shares the vault, login and same-device appearance settings.
+## Obsidian
 
 Open in Obsidian uses the configured device-specific vault name. A remote browser needs the corresponding vault on that device for the URI to work. Tasks remain readable directly through the [vault format](vault-format.md), with private authentication and recovery state stored separately.
 
@@ -40,7 +38,7 @@ Narrow layouts use Tasks / Done / Search / More navigation and a single column. 
 | Save failure | Keep the draft and show the error without claiming Saved |
 | Same note changed externally | Pause saving; retain the draft for Copy or discard/reload |
 | Invalid or duplicate note | Preserve the file and show a diagnostic; do not guess which note to overwrite |
-| Server unavailable | Preserve editor drafts; Mini labels its last update and disables writes |
-| Sign-out | Clear the authenticated Mini summary and require login |
+| Server unavailable | Preserve editor drafts and offer to retry the connection |
+| Sign-out | Clear the workspace from view and require sign-in |
 
 Use the [development guide](development.md) for repeatable checks and browser acceptance with temporary data.

@@ -1,6 +1,6 @@
 ---
 name: todo-tasks
-description: Manage the owner's personal tasks in Todo from any project. Use to review pending work, add, find, plan, update or complete tasks, record progress or what was done on a task, or close tasks after finishing work. Excludes app development, launcher setup, and explicitly named alternative task services.
+description: Manage the owner's personal tasks in Todo from any project. Use to review pending work, add, find, plan, update or complete tasks, record progress or what was done on a task, or close tasks after finishing work. Excludes app development, server setup, and explicitly named alternative task services.
 ---
 
 # Todo Tasks
@@ -10,7 +10,7 @@ Todo is the owner's personal task list. Each task is a Markdown note in the live
 ## Connect
 
 - **Use the `todo` MCP tools** when they are available: `find_tasks`, `get_task`, `add_task`, `update_task`, `complete_task`, `reopen_task`, `list_projects`, `add_project`. They go through the server, so revisions, recovery versions and day lists stay correct.
-- **Without them**, write through a signed-in Todo browser tab using [the API workflow](references/api.md). If neither is available, read the vault files only and tell the owner to connect an agent in Todo under **Settings → Connect an agent**.
+- **Without them**, write through a signed-in Todo browser tab using [the API workflow](references/api.md). If neither is available, read the vault files only and tell the owner to connect an agent in Todo under **Settings → Agent access**.
 - Never hand-edit task notes, generated day lists, locks or private state, never start a second server, and never read or print tokens, passwords or cookies.
 
 To read files directly, use the installation the owner named or recorded in user instructions; otherwise resolve this skill's real path and walk up from `<checkout>/.agents/skills/todo-tasks` to the checkout (it contains `app/package.json`). The vault is `VAULT_PATH` (relative to `app/`, default `<checkout>/Todo Vault`) or, for Docker, the host path in `TODO_VAULT_PATH`. Read `Home.md` first.

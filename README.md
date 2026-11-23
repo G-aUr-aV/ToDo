@@ -2,7 +2,7 @@
 
 [![Validate Todo web app](https://github.com/G-aUr-aV/ToDo/actions/workflows/build.yml/badge.svg)](https://github.com/G-aUr-aV/ToDo/actions/workflows/build.yml)
 
-A small personal task website that keeps your data in a dedicated Obsidian vault. Every task is an ordinary Markdown note. Use Todo in your browser, or install Todo and Mini Today as separate Chrome app windows on Linux, Mac or Windows.
+A small personal task website that keeps your data in a dedicated Obsidian vault. Every task is an ordinary Markdown note. Open Todo in your browser.
 
 One Node server owns one vault. There is no Electron runtime, task database, sync service or AI account to configure. Docker is optional.
 
@@ -22,7 +22,7 @@ scripts/local-node.sh npm start
 
 Prefix any other `npm`/`node` command in this README the same way. Windows uses an installed Node 24.
 
-The first start installs locked dependencies, builds the app and creates `Todo Vault/` and private `.todo-state/server/` if needed. Later starts reuse the build unless sources changed. Open **http://localhost:4310**. The terminal gives the path to `initial-login.txt`; read it locally, sign in as `owner`, then change the generated password in **Settings → Vault & connection**. Passwords are never printed in the terminal.
+The first start installs locked dependencies, builds the app and creates `Todo Vault/` and private `.todo-state/server/` if needed. Later starts reuse the build unless sources changed. Open **http://localhost:4310**. The terminal gives the path to `initial-login.txt`; read it locally, sign in as `owner`, then change the generated password in **Settings → Account**. Passwords are never printed in the terminal.
 
 Open `Todo Vault/` through Obsidian's **Open folder as vault**. Keep the server running while using Todo. Stop it with Ctrl+C. Only one server should open a vault at once; browser windows all share that server.
 
@@ -41,20 +41,9 @@ Optional settings are documented in [.env.example](.env.example). Copy it to `.e
 One Tasks list grouped by project, a Done log with outcomes, ⌘K search, Markdown notes/checklists, copy task name, clickable links and issue keys, independent plan dates and deadlines, completion/Undo, Trash/restore, recovery, import/export, dark theme, keyboard shortcuts and responsive layouts are included. Sign-in lasts a week from last use and survives restarts.
 
 - **Automatic rollover:** unfinished tasks planned before today move to today in your workspace timezone, including missed days while the server was stopped. Deadlines stay fixed. Markdown properties record the original plan and roll count. Disable it in Settings for manual planning.
-- **Reminders:** choose a date/time in the workspace timezone. Todo and Mini show due reminders with snooze/dismiss; enable browser notifications in Settings for system alerts. Keep either page open. Sleeping devices, suspended tabs and a stopped server can delay delivery; missed reminders appear on return. Closed-page push notifications are not provided.
+- **Reminders:** choose a date/time in the workspace timezone. Todo shows due reminders with snooze/dismiss; enable browser notifications in Settings for system alerts. Keep Todo open. Sleeping devices, suspended tabs and a stopped server can delay delivery; missed reminders appear on return. Closed-page push notifications are not provided.
 - **Repeating tasks:** daily, weekly or monthly, with a chosen interval. Completing an occurrence keeps its history and creates one future task. Missed occurrences are skipped; month-end dates keep their intended day. Undo handles the untouched generated occurrence safely.
-- **Agents:** Claude Code or any MCP client can find, update and close tasks through `/mcp` with a token from **Settings → Connect an agent**. The [todo-tasks skill](.agents/skills/todo-tasks/SKILL.md) tells agents what to write in notes.
-- **Mini Today:** http://localhost:4310/mini shows the open Tasks list, overdue work and quick completion/Undo. It shares your vault, login and reminders with full Todo.
-
-To add separate **Todo** and **Todo Mini Today** desktop launchers on Linux, macOS or Windows, run:
-
-```sh
-npm run launchers:install
-```
-
-The helper detects Chrome/Chromium and creates shortcuts for your OS. Both reuse the browser and need the server. For a remote server, pass `-- --url https://your-server.example`. [Platform helpers and options](docs/desktop-launchers.md). You can also use Chrome's **menu → Cast, save, and share → Install page as app** on Todo and `/mini`.
-
-For agent-assisted setup, ask **“Set up Todo on this computer using the todo-setup skill.”** The [portable skill](.agents/skills/todo-setup/SKILL.md) checks OS, CPU architecture, server and browser before installing the launchers. An agent without skill discovery can read that file directly. [Mini behavior](docs/mini-today.md).
+- **Agents:** Claude Code or any MCP client can find, update and close tasks through `/mcp` with a token from **Settings → Agent access**. The [todo-tasks skill](.agents/skills/todo-tasks/SKILL.md) tells agents what to write in notes.
 
 ## Your notes and progress
 
@@ -62,7 +51,7 @@ Tasks live in `Tasks/`; project context lives in `Projects/`. Task YAML includes
 
 Your assistant can read the vault directly to review plans, completed work and progress. No API key, LLM integration or proprietary database is needed. `Home.md` explains the format. Exclude `trashed: true` notes when reviewing active work, and preserve each note's UUID `id`.
 
-The repository includes two portable Agent Skills: [todo-tasks](.agents/skills/todo-tasks/SKILL.md) for personal task management and [todo-setup](.agents/skills/todo-setup/SKILL.md) for the server and launchers. After cloning on another machine, ask your agent:
+The repository includes two portable Agent Skills: [todo-tasks](.agents/skills/todo-tasks/SKILL.md) for personal task management and [todo-setup](.agents/skills/todo-setup/SKILL.md) for the web server. After cloning on another machine, ask your agent:
 
 > Read `docs/agent-skills.md` and set up Todo's skills for your agent on this machine, including global personal-task routing. Reuse my configured vault and preserve existing instructions.
 
@@ -80,7 +69,6 @@ The app autosaves and retains unsaved drafts on the device. If an Obsidian edit 
 npm run setup       # explicit clean dependency install + build, if desired
 npm run dev         # UI at http://localhost:4173, API at 4313; needs an unused vault
 npm run check       # TypeScript, core/API/setup tests, production build, real HTTP startup smoke
-npm run test:launchers # desktop shortcut checks; no app dependencies required
 ```
 
 Use temporary `VAULT_PATH`/`STATE_PATH` directories when developing with a production server already running. `npm run check` uses invented temporary vaults and needs permission to listen on loopback. See the [development guide](docs/development.md) for the source layout and repeatable checks, and the [UX guide](docs/ux.md) for the product behavior.

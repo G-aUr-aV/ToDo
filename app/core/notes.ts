@@ -130,9 +130,8 @@ export function taskFrom(
   for (const name of ["recurrence_source_id", "next_occurrence_id"])
     if (d[name] != null && !uuid.safeParse(d[name]).success)
       throw new Error(`Invalid ${name} identity.`);
-  for (const name of ["focus", "trashed"])
-    if (d[name] != null && typeof d[name] !== "boolean")
-      throw new Error(`The ${name} property must be true or false.`);
+  if (d.trashed != null && typeof d.trashed !== "boolean")
+    throw new Error("The trashed property must be true or false.");
   if (d.project != null && typeof d.project !== "string")
     throw new Error("The project property must be a wiki link.");
   if (
@@ -148,7 +147,6 @@ export function taskFrom(
     due: (d.due as string) ?? null,
     project: (d.project as string) ?? null,
     projectId: null,
-    focus: d.focus === true,
     trashed: d.trashed === true,
     tags: (d.tags as string[]) ?? [],
     createdAt: str(d.created_at, fallbackTime),

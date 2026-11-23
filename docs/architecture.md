@@ -1,12 +1,12 @@
 # Implementation decisions — web-only Todo
 
-Todo is a lightweight personal website with optional Chrome app windows and one self-hosted vault server.
+Todo is a lightweight personal website with one self-hosted vault server.
 
 ## One interface and one engine
 
-React, TypeScript and Vite build the full website and a separate Mini Today entry. Node 24 and Fastify serve the assets and same-origin API. `app/core/` owns Markdown parsing, validation, indexing, writes, imports and recovery. `app/server/` exposes that engine to every browser window and, through a token-authenticated MCP endpoint (`/mcp`), to agents. Desktop launchers are small shortcuts to the installed Chrome/Chromium browser.
+React, TypeScript and Vite build the Todo website. Node 24 and Fastify serve the assets and same-origin API. `app/core/` owns Markdown parsing, validation, indexing, writes, imports and recovery. `app/server/` exposes that engine to every browser window and, through a token-authenticated MCP endpoint (`/mcp`), to agents.
 
-Docker is optional server deployment. A client uses an ordinary browser or Chrome's installed-site mode. Full Todo and Mini have distinct install manifest identities; both share the same origin/session. There is no second task database, local native engine or offline write queue.
+Docker is optional server deployment. Use any supported browser to access the workspace. There is no second task database, local native engine or offline write queue.
 
 ## Vault storage
 
@@ -22,7 +22,7 @@ Obsidian does not participate in the app's lock. A save racing after the final r
 
 The server rolls unfinished scheduled tasks forward to the workspace's current date by default, including after downtime. Deadlines are independent. `original_scheduled`, `rollover_count` and `last_rolled_at` retain the plan history; disabling `autoRollover` leaves dates under manual control.
 
-Tasks can store an explicit timezone-aware `reminder_at` and daily/weekly/monthly `repeat`. A completed recurring note is retained and links to one generated successor; the successor resets real checklist markers while preserving fenced examples. Deterministic next IDs and stored creation/revision flags support restart repair and safe Undo without a second task database. Browser reminders read this same metadata and need an open full/Mini page.
+Tasks can store an explicit timezone-aware `reminder_at` and daily/weekly/monthly `repeat`. A completed recurring note is retained and links to one generated successor; the successor resets real checklist markers while preserving fenced examples. Deterministic next IDs and stored creation/revision flags support restart repair and safe Undo without a second task database. Browser reminders read this same metadata and need an open Todo page.
 
 A local assistant can read the vault's status/date/completion fields, linked projects, checklist bodies and recurrence history directly. `Home.md` documents the format. Private account settings and recovery remain outside the vault; no LLM/provider integration is needed.
 
@@ -40,10 +40,10 @@ The server's small stale-revision check remains, including for Undo/restores. It
 
 The server supports one owner and vault. Authentication uses HttpOnly SameSite cookies, Secure under HTTPS, login throttling and CSRF/Origin/Host checks. Sessions expire when the server restarts. API responses are no-store; HTML and install manifests revalidate. CSP restricts executable content to the app. Markdown HTTPS links use normal browser navigation; Obsidian handoff uses a device-specific vault name.
 
-Browsers refresh through server events, opaque same-origin BroadcastChannel invalidations and periodic checks. Mini requests an authenticated metadata-only projection of the Tasks list and loads separately from full editing, Markdown and ZIP export code. Appearance is shared on the same browser/device. Disconnected Mini shows its last in-memory update and disables writes; sign-out clears the summary.
+Browsers refresh through server events, opaque same-origin BroadcastChannel invalidations and periodic checks. Appearance is stored in the browser.
 
 ## Build and maintenance
 
-`npm run check` checks TypeScript, runs core/API/setup/UI-logic tests, builds web/server output and exercises the packaged server over real HTTP. `npm start` installs missing locked dependencies and rebuilds only absent/stale output, then runs in one Node process. Missing or empty vaults receive a complete scaffold through exclusive file creation. The build bundles the ESM Markdown parser and keeps Fastify/filesystem runtime packages external; production omits frontend/build dependencies. CI checks desktop launchers on Linux/macOS/Windows, validates the web app and builds the Docker image.
+`npm run check` checks TypeScript, runs core/API/setup/UI-logic tests, builds web/server output and exercises the packaged server over real HTTP. `npm start` installs missing locked dependencies and rebuilds only absent/stale output, then runs in one Node process. Missing or empty vaults receive a complete scaffold through exclusive file creation. The build bundles the ESM Markdown parser and keeps Fastify/filesystem runtime packages external; production omits frontend/build dependencies. CI validates the web app and builds the Docker image.
 
-[Development and checks](development.md), [vault format](vault-format.md), [Mini behavior](mini-today.md), [Docker operations](docker.md).
+[Development and checks](development.md), [vault format](vault-format.md), [Docker operations](docker.md).

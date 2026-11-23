@@ -4,7 +4,6 @@ export const routeFor: Record<
   { method: "GET" | "POST" | "PATCH"; path: string }
 > = {
   snapshot: { method: "GET", path: "/api/workspace" },
-  today: { method: "GET", path: "/api/today" },
   createTask: { method: "POST", path: "/api/tasks" },
   updateTask: { method: "PATCH", path: "/api/tasks/:id" },
   createProject: { method: "POST", path: "/api/projects" },

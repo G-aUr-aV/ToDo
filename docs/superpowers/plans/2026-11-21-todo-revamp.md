@@ -4,7 +4,7 @@
 
 **Goal:** One quick task list with copy-name, always-visible notes, a Done log, an MCP endpoint plus token so agents can close tasks with outcome notes, and 7-day sliding logins.
 
-**Architecture:** The data layer gets pure view helpers (`inNow`, `isLater`) and Mini/preference changes. The server gets persisted sliding sessions, personal tokens and a hand-written stateless MCP JSON-RPC route that calls the existing `Vault`. The React UI is split out of `App.tsx` into focused components using inline SVG icons and new design tokens taken from the mockup.
+**Architecture:** The data layer gets pure view helpers (`inNow`, `isLater`) and preference changes. The server gets persisted sliding sessions, personal tokens and a hand-written stateless MCP JSON-RPC route that calls the existing `Vault`. The React UI is split out of `App.tsx` into focused components using inline SVG icons and new design tokens taken from the mockup.
 
 **Tech Stack:** TypeScript, React 19, Vite 8, Fastify 5, zod 4, node:test via tsx. No new dependencies.
 
@@ -14,7 +14,7 @@
 
 - No new npm dependencies (no MCP SDK). Lightweight: no new font files.
 - One vault server. Every write goes through `Vault` methods: `createTask(input)`, `updateTask(id, revision, patch)`, `createProject(input)`, `updateProject(id, revision, patch)`.
-- Vault note format unchanged. `focus` is still parsed and preserved but ignored by the UI and ordering.
+- The vault uses Markdown notes. The removed task focus flag has no role in task ordering.
 - Tests use invented temporary vaults only. Never touch `Todo Vault/`, `.todo-state/` or the Docker instance.
 - Keep `.openai/hosting.json`, `worker/index.js`, `scripts/prepare-sites-build.mjs` and `tests/sites-worker.test.mjs` intact.
 - No git add/commit (owner rule). There are no commit steps; the changes stay unstaged.
@@ -23,7 +23,7 @@
 
 ## Review Focus
 
-1. **An existing `preferences.json` with `startPage: "today"`:** the vault must still open, with startPage mapped to `"tasks"`. (Task 1 test.)
+1. **Workspace start page:** settings allow Tasks or Done.
 2. **A title URL with trailing punctuation**, e.g. `see https://x.test/a/b).`: the link excludes the trailing `).` (Task 5 test).
 3. **A corrupt or unreadable `sessions.json` or `tokens.json`:** the server starts. Sessions start empty and tokens are treated as none (fail closed), with no crash. (Task 2 tests.)
 4. **An agent appends notes while the owner has the same task open with unsaved edits:** the owner's editor pauses with Copy draft / Discard (existing stale path), and the agent's append is not lost. (Task 3 test for append retry; the UI path is verified in the browser in Task 8.)
@@ -31,27 +31,19 @@
 
 ---
 
-### Task 1: Core views, Mini summary, preferences
+### Task 1: Core views and preferences
 
 **Files:**
-- Modify: `core/task-views.ts`, `core/today.ts`, `core/model.ts` (preferences)
-- Test: `tests/task-views.test.ts` (new), `tests/mini.test.ts`, `tests/vault.test.ts`
+- Test: `tests/task-views.test.ts` (new), `tests/vault.test.ts`
 
 **Interfaces:**
-- Produces: `inNow(task: Task, today: string): boolean`, `isLater(task: Task, today: string): boolean` and `byPriority(a, b)` (due ascending with null last, then `createdAt` ascending, then id; focus ignored), from `core/task-views.ts` and re-exported from `core/model.ts`.
+- Produces: `inNow(task: Task, today: string): boolean`, `isLater(task: Task, today: string): boolean` and `byPriority(a, b)` (due ascending with null last, then `createdAt` ascending, then id), from `core/task-views.ts` and re-exported from `core/model.ts`.
 - Produces: `Preferences.issueLinkTemplate: string` and `Preferences.startPage: "tasks" | "done"`.
-- Produces: `TodaySnapshot.groups` keys `"overdue"`, `"project:<id>"`, `"none"`, labels `"Deadline passed"`, `<project title>`, `"No project"`. Project order follows `snapshot.projects` order.
 
-- [ ] Step 1: Write `tests/task-views.test.ts`. Assert `inNow` is true for a task with no dates, `scheduled == today`, or `scheduled < today`. It is true for `scheduled > today` with `due <= today`, false for `scheduled > today` with `due > today` or no due, and false for done or trashed tasks. Assert `isLater` is the complement among active tasks, and that `byPriority` ignores `focus`.
-- [ ] Step 2: Update `tests/mini.test.ts` so groups are keyed by project, with the overdue group first and no `focus` key. Add a future-planned task (`scheduled` tomorrow) that is excluded, and an undated inbox task that is included.
-- [ ] Step 3: Add to `tests/vault.test.ts` a check that writing `preferences.json` with `{startPage:"today", …}` into a temp state dir then starting `Vault` succeeds, and `snapshot().preferences.startPage === "tasks"`. Add that `setPreferences` with `issueLinkTemplate: "https://x.test/browse"` (no `{key}`) is rejected and `"https://x.test/browse/{key}"` is accepted.
-- [ ] Step 4: Run `../scripts/local-node.sh npm test`. Expected: the new assertions FAIL.
-- [ ] Step 5: Implement.
-  - `startPage` becomes `z.preprocess(v => ["today","inbox","upcoming","all","projects"].includes(v) ? "tasks" : v, z.enum(["tasks","done"]))`.
-  - `issueLinkTemplate`: `z.string().max(300).refine(v => v === "" || v.includes("{key}"))` with default `""`.
-  - `defaultPreferences.startPage = "tasks"`.
-  - `todaySummary` uses `inNow`.
-- [ ] Step 6: Run the tests and typecheck. Expected: PASS, and the earlier `inToday` tests are untouched.
+- [ ] Step 1: Write `tests/task-views.test.ts`. Assert `inNow` is true for a task with no dates, `scheduled == today`, or `scheduled < today`. It is true for `scheduled > today` with `due <= today`, false for `scheduled > today` with `due > today` or no due, and false for done or trashed tasks. Assert `isLater` is the complement among active tasks.
+- [ ] Step 2: Check that issue link templates include `{key}` when set.
+- [ ] Step 3: Set the default start page to Tasks and allow Tasks or Done.
+- [ ] Step 4: Run tests and typecheck.
 
 ### Task 2: Sessions (7-day sliding, persisted) and personal tokens
 
@@ -188,22 +180,22 @@
 - [ ] Step 1: Implement the three components and the key handler.
 - [ ] Step 2: Typecheck. Browser: complete with X, then Undo; C copies; ⌘K "trace" plus Enter opens the task in Done.
 
-### Task 7: Settings page, Mini restyle, project header
+### Task 7: Settings page and project header
 
 **Files:**
-- Modify: `src/Settings.tsx` (one scrolling page of sections: Connect an agent, Issue links, Appearance, Vault & Obsidian, Planning, Account, Data), `src/MiniApp.tsx` (project groups, no focus), `src/mini.css` (new tokens), `src/App.tsx` (project header with editable description and ⋯ Archive)
+- Modify: `src/Settings.tsx` (one scrolling page of sections: Connect an agent, Issue links, Appearance, Vault & Obsidian, Planning, Account, Data), `src/App.tsx` (project header with editable description and ⋯ Archive)
 
 **Interfaces:**
 - Consumes: `createToken`, `listTokens` and `revokeToken` (Task 2); `issueLinkTemplate` (Task 1).
 - The agent section shows, after creating a token: the full `claude mcp add --scope user --transport http todo <endpoint> --header "Authorization: Bearer <token>"` command, the endpoint and the token, each with a copy button, plus "Shown once". The token list has Revoke. The password form says that changing it also disconnects agents.
 
 - [ ] Step 1: Implement.
-- [ ] Step 2: Typecheck. Browser: create a token, copy the command, revoke it; save an issue template and see key chips link; Mini at `/mini` shows project groups.
+- [ ] Step 2: Typecheck. Browser: create a token, copy the command, revoke it; save an issue template and see key chips link.
 
 ### Task 8: Skill, docs, full verification
 
 **Files:**
-- Modify: `.agents/skills/todo-tasks/SKILL.md` (rewrite per spec §3, via the `skill-edit` skill), `.agents/skills/todo-tasks/references/api.md` (add MCP section), `docs/agent-skills.md`, `docs/ux.md`, `docs/mini-today.md`, `README.md`, `app/AGENTS.md` (Daylight line, via `skill-edit`)
+- Modify: `.agents/skills/todo-tasks/SKILL.md` (rewrite per spec §3, via the `skill-edit` skill), `.agents/skills/todo-tasks/references/api.md` (add MCP section), `docs/agent-skills.md`, `docs/ux.md`, `README.md`, `app/AGENTS.md` (Daylight line, via `skill-edit`)
 
 - [ ] Step 1: Write the docs and skill.
 - [ ] Step 2: Run `../scripts/local-node.sh npm run check`. Expected: typecheck, all tests, build and setup smoke pass.

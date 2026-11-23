@@ -1,7 +1,6 @@
 import { z } from "zod";
 import { Vault } from "./vault";
 import { AppError, uuid } from "./model";
-import { todaySummary } from "./today";
 const revision = z.string().regex(/^[a-f0-9]{64}$/);
 const edit = z.object({ id: uuid, revision, patch: z.unknown() }).strict();
 export const importSchema = z
@@ -22,7 +21,6 @@ export const importSchema = z
   );
 export const operations = [
   "snapshot",
-  "today",
   "createTask",
   "updateTask",
   "createProject",
@@ -50,8 +48,6 @@ export async function operate(
   switch (operation) {
     case "snapshot":
       return vault.snapshot();
-    case "today":
-      return todaySummary(await vault.snapshot());
     case "createTask":
       return vault.createTask(payload);
     case "updateTask": {

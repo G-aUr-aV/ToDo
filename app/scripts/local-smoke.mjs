@@ -90,8 +90,10 @@ try {
   assert.ok((await fs.stat(path.join(root, "Days/README.md"))).isFile());
   assert.equal((await fs.stat(path.join(state, "owner.json"))).mode & 0o777, 0o600);
   assert.equal((await request("/api/workspace")).status, 401);
-  assert.equal((await request("/")).status, 200);
-  assert.equal((await request("/mini")).status, 200);
+  const page = await request("/");
+  assert.equal(page.status, 200);
+  assert.match(await page.text(), /<title>Todo<\/title>/);
+  assert.equal((await request("/favicon.png")).status, 200);
   await login();
   const events = await request("/api/events");
   assert.equal(events.status, 200);

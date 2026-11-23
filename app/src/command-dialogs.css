@@ -1,0 +1,248 @@
+.scrim:has(> .command-panel) {
+  --dialog-top: clamp(10px, 11dvh, 100px);
+  --dialog-bottom: max(12px, env(safe-area-inset-bottom));
+  padding-block: var(--dialog-top) var(--dialog-bottom);
+  background: color-mix(in srgb, var(--scrim) 64%, transparent);
+}
+
+.modal.command-panel {
+  display: flex;
+  flex-direction: column;
+  max-height: calc(100dvh - var(--dialog-top) - var(--dialog-bottom));
+  padding: 0;
+  border-color: color-mix(in srgb, var(--line-strong) 80%, transparent);
+  overflow: hidden;
+}
+
+@supports (backdrop-filter: blur(12px)) {
+  .modal.command-panel {
+    background: color-mix(in srgb, var(--raised) 92%, transparent);
+    backdrop-filter: blur(12px);
+  }
+}
+
+.command-panel .modal-heading {
+  flex-shrink: 0;
+  margin: 0;
+  padding: 12px 16px 8px;
+}
+
+.command-panel .modal-heading h2 {
+  font: 600 25px/1.1 var(--serif);
+  letter-spacing: -0.02em;
+}
+
+.command-panel.find .find-input {
+  flex-shrink: 0;
+  position: relative;
+  display: block;
+  margin: 0 16px 12px;
+}
+
+.find-input .icon {
+  position: absolute;
+  inset: 0 auto 0 12px;
+  margin-block: auto;
+  color: var(--muted);
+  pointer-events: none;
+}
+
+.command-panel.find .find-input > input[role="combobox"] {
+  width: 100%;
+  min-height: 42px;
+  padding: 8px 12px 8px 38px;
+  background: var(--canvas);
+}
+
+.find-section {
+  flex-shrink: 0;
+  padding: 8px 16px 0;
+  border-top: 1px solid var(--line);
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.find-results,
+.keys-sheet-body {
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior-y: contain;
+  scrollbar-color: var(--control) transparent;
+  scrollbar-width: thin;
+}
+
+.find-results {
+  max-height: 410px;
+  padding: 6px 8px;
+  border-top: 1px solid var(--line);
+}
+
+.find-section + .find-results {
+  border-top: 0;
+}
+
+.find-result {
+  display: flex;
+  align-items: center;
+  min-height: 40px;
+  gap: 10px;
+  padding: 7px 10px;
+  border: 1px solid transparent;
+  border-radius: 7px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.find-result:hover:not([aria-selected="true"]) {
+  background: var(--hover);
+}
+
+.find-result[aria-selected="true"] {
+  background: var(--selected);
+  border-color: color-mix(in srgb, var(--accent) 58%, var(--selected));
+}
+
+.find-result-icon {
+  width: 18px;
+  flex: none;
+  display: grid;
+  place-items: center;
+}
+
+.find-result-copy {
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+}
+
+.find-title {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+  font-weight: 550;
+  line-height: 1.25;
+}
+
+.find-meta {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--muted);
+  font-size: 0.8em;
+  line-height: 1.25;
+}
+
+.find-empty {
+  padding: 12px 16px 16px;
+  border-top: 1px solid var(--line);
+  color: var(--ink-2);
+}
+
+.find-empty p + p {
+  margin-top: 2px;
+  color: var(--muted);
+  font-size: 0.87em;
+}
+
+.find-keys {
+  display: flex;
+  flex-shrink: 0;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  padding: 8px 16px;
+  border-top: 1px solid var(--line);
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.modal.keys-sheet {
+  width: 420px;
+}
+
+.keys-sheet .modal-heading {
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--line);
+}
+
+.keys-sheet-body {
+  padding: 10px 16px 16px;
+}
+
+.keys-sheet-body:focus-visible {
+  outline-offset: -3px;
+}
+
+.keys-sheet-body section + section {
+  margin-top: 14px;
+}
+
+.keys-sheet-body h3 {
+  margin: 0 0 3px;
+  color: var(--muted);
+  font-size: 0.87em;
+  font-weight: 650;
+}
+
+.keys-sheet-body dl {
+  margin: 0;
+}
+
+.keys-sheet-body dl > div {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  min-height: 31px;
+  padding: 4px 0;
+}
+
+.keys-sheet-body dl > div + div {
+  border-top: 1px solid var(--line);
+}
+
+.keys-sheet-body dd,
+.keys-combo {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.keys-sheet-body dd {
+  flex: none;
+  margin: 0;
+}
+
+.keys-sheet-body kbd {
+  display: inline-grid;
+  place-items: center;
+  min-width: 22px;
+  min-height: 22px;
+  color: var(--ink-2);
+}
+
+.keys-or,
+.keys-sheet-body p {
+  color: var(--muted);
+}
+
+.keys-sheet-body p {
+  margin-top: 12px;
+  padding-top: 10px;
+  border-top: 1px solid var(--line);
+  font-size: 0.8em;
+}
+
+@media (max-width: 600px) {
+  .scrim:has(> .command-panel) {
+    --dialog-top: max(10px, env(safe-area-inset-top));
+  }
+}
+
+@media (max-height: 320px), (pointer: coarse) {
+  .find-keys {
+    display: none;
+  }
+}

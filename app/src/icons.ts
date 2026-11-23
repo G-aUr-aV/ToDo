@@ -29,6 +29,7 @@ export const icons: Record<string, string> = {
   obsidian:
     '<path d="M9 3l7 3 3 7-5 8-7-2-3-8z"/><path d="M9 3l1 9-5-1M10 12l4 9"/>',
   history: '<path d="M4 12a8 8 0 103-6.2M4 4v4h4M12 8v4l3 2"/>',
+  restore: '<path d="M4 11h10a5 5 0 010 10h-3M4 11l5-5M4 11l5 5"/>',
   folder:
     '<path d="M4 6.5A1.5 1.5 0 015.5 5H10l2 2h6.5A1.5 1.5 0 0120 8.5v9a1.5 1.5 0 01-1.5 1.5h-13A1.5 1.5 0 014 17.5z"/>',
   key: '<circle cx="8" cy="15" r="4"/><path d="M11 12l9-9M17 6l3 3"/>',
@@ -44,8 +45,6 @@ export const icons: Record<string, string> = {
   refresh: '<path d="M20 12a8 8 0 11-2.3-5.6M20 4v5h-5"/>',
   upload: '<path d="M12 16V4M7 9l5-5 5 5M5 20h14"/>',
   download: '<path d="M12 4v12M7 11l5 5 5-5M5 20h14"/>',
-  "device-desktop":
-    '<rect x="3" y="4" width="18" height="12" rx="2"/><path d="M8 20h8M12 16v4"/>',
   inbox: '<path d="M4 13l3-8h10l3 8v6H4zM4 13h5l1 2h4l1-2h5"/>',
   sun: '<circle cx="12" cy="12" r="4"/><path d="M12 3v2M12 19v2M3 12h2M19 12h2M5.6 5.6l1.4 1.4M17 17l1.4 1.4M5.6 18.4L7 17M17 7l1.4-1.4"/>',
   moon: '<path d="M20 14.5A8 8 0 019.5 4 8 8 0 1020 14.5z"/>',

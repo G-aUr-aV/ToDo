@@ -1,9 +1,9 @@
-import { useRef, useState, type ReactNode } from "react";
+import { useId, useRef, useState, type ReactNode } from "react";
 import type { Project, Snapshot, Task } from "../core/model";
 import { checkItems } from "../core/checklist";
 import { titleParts } from "./rich-title-parts";
 import { Button, Icon, errorMessage } from "./components";
-import { call } from "./client";
+import { call, ClientError } from "./client";
 import { DatePicker, dateLabel } from "./DateControl";
 import { Popover, MenuItem } from "./Popover";
 import { projectColor } from "./project-color";
@@ -215,11 +215,11 @@ export function TaskRow({
         ) : (
           <div
             className={"task-row" + (done ? " done" : "") + (focused ? " focused" : "")}
-            tabIndex={focused ? 0 : -1}
+            tabIndex={0}
             aria-label={task.title}
             onClick={onOpen}
             onKeyDown={(e) => {
-              if (e.key === "Enter" && e.target === e.currentTarget) {
+              if (["Enter", " "].includes(e.key) && e.target === e.currentTarget) {
                 e.preventDefault();
                 onOpen();
               }
@@ -446,34 +446,54 @@ export function NewProjectInput({
   onError: (message: string) => void;
 }) {
   const [title, setTitle] = useState("");
+  const [nameError, setNameError] = useState("");
+  const [busy, setBusy] = useState(false);
+  const errorId = useId();
   return (
-    <form
-      className="menu-input"
-      onSubmit={(e) => {
-        e.preventDefault();
-        e.stopPropagation();
-        const name = title.trim();
-        if (!name) return;
-        void call<Project>("createProject", {
-          requestId: crypto.randomUUID(),
-          title: name,
-          notes: "",
-        })
-          .then((p) => {
-            setTitle("");
-            onCreated(p);
+    <>
+      <form
+        className="menu-input"
+        aria-busy={busy}
+        onSubmit={(e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          const name = title.trim();
+          if (!name || busy) return;
+          setBusy(true);
+          setNameError("");
+          void call<Project>("createProject", {
+            requestId: crypto.randomUUID(),
+            title: name,
+            notes: "",
           })
-          .catch((err) => onError(errorMessage(err)));
-      }}
-    >
-      <Icon name="plus" />
-      <input
-        aria-label="New project name"
-        placeholder="New project…"
-        maxLength={120}
-        value={title}
-        onChange={(e) => setTitle(e.target.value)}
-      />
-    </form>
+            .then((p) => {
+              setTitle("");
+              onCreated(p);
+            })
+            .catch((err) => {
+              if (err instanceof ClientError && err.info.code === "PROJECT_EXISTS") {
+                setNameError(err.message);
+              } else onError(errorMessage(err));
+            })
+            .finally(() => setBusy(false));
+        }}
+      >
+        <Icon name="plus" />
+        <input
+          aria-label="New project name"
+          aria-invalid={!!nameError}
+          aria-describedby={nameError ? errorId : undefined}
+          placeholder="New project…"
+          maxLength={120}
+          readOnly={busy}
+          value={title}
+          onChange={(e) => {
+            setTitle(e.target.value);
+            setNameError("");
+          }}
+        />
+      </form>
+      {nameError && <p className="menu-hint" id={errorId} role="alert">{nameError}</p>}
+    </>
   );
 }

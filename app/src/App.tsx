@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useRef, useState } from "react";
 import { readStored, writeStored } from "./storage";
 import { appearanceKey, applyAppearance, readAppearance, type Appearance } from "./appearance";
 import type { Task, Project, Snapshot, TaskPatch, Version } from "../core/model";
@@ -8,10 +8,10 @@ import { call, subscribe, ClientError } from "./client";
 import { Banner, Button, Empty, Field, Icon, Modal, modifierKey, copyText, errorMessage } from "./components";
 import { TaskEditor, form, type CardActions } from "./Editor";
 import { Settings, ImportPage } from "./Settings";
+import { TrashView } from "./TrashView";
 import { dateLabel } from "./DateControl";
-import { openMini } from "./mini-window";
 import { Reminders } from "./Reminders";
-import { TaskRow, QuickAdd, NewProjectInput, RichTitle } from "./TaskList";
+import { TaskRow, QuickAdd, NewProjectInput } from "./TaskList";
 import { DoneView, RecentCompletions } from "./DoneView";
 import { Find, KeyboardSheet } from "./Find";
 import { Popover, MenuItem } from "./Popover";
@@ -78,6 +78,8 @@ export default function App() {
   const snapshotRef = useRef(snapshot);
   snapshotRef.current = snapshot;
   const addInput = useRef<HTMLInputElement>(null);
+  const workspaceScroll = useRef<HTMLDivElement>(null);
+  const trashHeading = useRef<HTMLHeadingElement>(null);
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   useEffect(() => {
     writeStored(appearanceKey, JSON.stringify(appearance));
@@ -98,8 +100,11 @@ export default function App() {
         const id = new URLSearchParams(location.search).get("task");
         const task = data.tasks.find((t) => t.id === id);
         if (task) {
-          setView(task.status === "done" ? "done" : "tasks");
-          setOpenId(task.id);
+          setView(task.trashed ? "trash" : task.status === "done" ? "done" : "tasks");
+          if (!task.trashed) {
+            setOpenId(task.id);
+            setCursor(task.id);
+          }
         }
       }
       return data;
@@ -152,10 +157,12 @@ export default function App() {
     toastTimer.current = setTimeout(() => setToast(null), undo ? 6000 : 3200);
   }
   function go(next: View, project: string | null = null) {
-    document.getElementById("main")?.scrollTo({ top: 0 });
+    workspaceScroll.current?.scrollTo({ top: 0 });
     setView(next);
     setFilterProject(project);
     setOpenId(null);
+    setNotesFor(null);
+    setMenuFor(null);
     setCursor(null);
     setMore(false);
   }
@@ -220,12 +227,23 @@ export default function App() {
   /** Check animation, slide out, then the saved result with Undo. */
   async function settle(task: Task, patch: TaskPatch, message: string) {
     if (ghosts.has(task.id)) return;
+    const row = document.querySelector(`[data-task-id="${task.id}"]`);
+    const hadFocus = row?.contains(document.activeElement);
+    const siblingRows = [...document.querySelectorAll<HTMLElement>("[data-task-id]")];
+    const index = siblingRows.findIndex((item) => item === row);
+    const nextId = (siblingRows[index + 1] ?? siblingRows[index - 1])?.dataset.taskId;
     setGhosts((old) => new Map(old).set(task.id, task));
     const [result] = await Promise.all([
       mutate(task, patch, message),
       wait(reducedMotion() ? 0 : 560),
     ]);
-    if (result) setOpenId((id) => (id === task.id ? null : id));
+    if (result) {
+      setOpenId((id) => (id === task.id ? null : id));
+      if (hadFocus && (document.activeElement === document.body || row?.contains(document.activeElement))) {
+        setCursor(nextId ?? null);
+        if (!nextId) document.getElementById("main")?.focus({ preventScroll: true });
+      }
+    }
     setGhosts((old) => {
       const next = new Map(old);
       next.delete(task.id);
@@ -287,6 +305,7 @@ export default function App() {
       go(target, matchingProject);
     setOpenId(task.id);
     setCursor(task.id);
+    setMenuFor(null);
     setNotesFor(notes ? task.id : null);
     requestAnimationFrame(() => {
       const row = document.querySelector(`[data-task-id="${task.id}"]`);
@@ -305,6 +324,7 @@ export default function App() {
     const taskById = (id: string | null) =>
       snapshotRef.current?.tasks.find((t) => t.id === id);
     const keys = (e: KeyboardEvent) => {
+      if (e.defaultPrevented || e.isComposing) return;
       const target = e.target as HTMLElement;
       const typing = target.closest('input,textarea,select,[contenteditable="true"]');
       const layered = document.querySelector('[role=dialog],[role=menu]');
@@ -318,6 +338,8 @@ export default function App() {
       if (e.key === "Escape" && !layered && !typing) {
         if (k.openId) {
           setOpenId(null);
+          setNotesFor(null);
+          setMenuFor(null);
           requestAnimationFrame(() =>
             document
               .querySelector<HTMLElement>(`[data-task-id="${k.openId}"] .task-row`)
@@ -330,13 +352,20 @@ export default function App() {
         return;
       if (target.closest("a,button") && e.key === "Enter") return;
       const ids = visibleIds();
-      const at = k.cursor ? ids.indexOf(k.cursor) : -1;
-      const current = taskById(k.openId ?? k.cursor);
+      const focusedId = target.closest<HTMLElement>("[data-task-id]")?.dataset.taskId;
+      const selectedId = focusedId ?? k.cursor;
+      const at = selectedId ? ids.indexOf(selectedId) : -1;
+      const current = taskById(k.openId ?? selectedId);
       const move = (delta: number) => {
+        if (!ids.length) return;
         e.preventDefault();
         const next = ids[Math.max(0, Math.min(ids.length - 1, at + delta))] ?? null;
         setCursor(next);
-        if (k.openId && next) setOpenId(next);
+        if (k.openId && next && k.openId !== next) {
+          setNotesFor(null);
+          setMenuFor(null);
+          setOpenId(next);
+        }
       };
       switch (e.key) {
         case "n":
@@ -383,6 +412,7 @@ export default function App() {
             if (k.openId && cardActions.current) cardActions.current.openMenu(kind);
             else {
               setMenuFor({ id: current.id, kind });
+              setCursor(current.id);
               setOpenId(current.id);
             }
           }
@@ -396,7 +426,8 @@ export default function App() {
         case "e":
           if (current) {
             e.preventDefault();
-            openTask(current, true);
+            if (k.openId && cardActions.current) cardActions.current.editNotes();
+            else openTask(current, true);
           }
           break;
       }
@@ -422,11 +453,14 @@ export default function App() {
     return () => document.removeEventListener("mousedown", down);
   }, [openId]);
   useEffect(() => {
-    if (!cursor || openId === cursor) return;
-    document
-      .querySelector<HTMLElement>(`[data-task-id="${cursor}"] .task-row`)
-      ?.focus({ preventScroll: false });
-  }, [cursor, openId]);
+    if (!cursor || (openId === cursor && (notesFor === cursor || menuFor?.id === cursor))) return;
+    const selector = openId === cursor ? ".task-card" : ".task-row";
+    const row = document.querySelector<HTMLElement>(`[data-task-id="${cursor}"] ${selector}`);
+    if (row && !row.contains(document.activeElement)) {
+      row.focus({ preventScroll: true });
+      row.scrollIntoView({ block: "nearest" });
+    }
+  }, [cursor, openId, notesFor, menuFor]);
   useEffect(() => {
     if (!fresh) return;
     const timer = setTimeout(() => setFresh(null), 1600);
@@ -567,10 +601,11 @@ export default function App() {
       </button>
     </div>
   );
+  const workspaceKey = view + (filterProject ?? "");
   return (
     <div className="app-shell">
       <a className="skip-link" href="#main">
-        Skip to tasks
+        Skip to content
       </a>
       <aside className="sidebar" aria-label="Workspace navigation">
         <div className="wordmark">
@@ -589,32 +624,28 @@ export default function App() {
           {navButton("done", "Done", "circle-check")}
         </nav>
         {projectHeading}
-        {activeProjects.length > 0 && (
-          <nav className="nav-group" aria-label="Projects">
-            {projectLinks}
-          </nav>
-        )}
-        <div className="side-spacer" />
-        <nav className="nav-group" aria-label="Workspace tools">
-          {navButton("trash", "Trash", "trash")}
-          {navButton("settings", "Settings", "settings")}
+        <nav className="nav-group sidebar-projects" aria-label="Projects">
+          {projectLinks}
         </nav>
-        <div className="side-utilities">
-          <button onClick={openMini} title="Open Mini Today"><Icon name="device-desktop" size={16} />Mini Today</button>
-          <button className="icon-button" onClick={() => setKeysOpen(true)} aria-label="Keyboard shortcuts" title="Keyboard shortcuts (?)"><Icon name="keyboard" size={17} /></button>
+        <div className="sidebar-footer">
+          <nav className="nav-group" aria-label="Workspace tools">
+            {navButton("trash", "Trash", "trash")}
+            {navButton("settings", "Settings", "settings")}
+          </nav>
+          <button className="nav-item" onClick={() => setKeysOpen(true)} title="Keyboard shortcuts (?)">
+            <Icon name="keyboard" size={17} /><span>Shortcuts</span>
+          </button>
+          <button className="vault-status" onClick={() => go("settings")}>
+            <i className={error ? "offline" : saving === "Saving…" ? "saving" : ""} />
+            <span>{error ? "Connection interrupted" : saving === "Saved" ? "Saved to vault" : saving}</span>
+          </button>
         </div>
-        <button className="vault-status" onClick={() => go("settings")}>
-          <i className={error ? "offline" : saving === "Saving…" ? "saving" : ""} />
-          <span>{error ? "Connection interrupted" : saving === "Saved" ? "Saved to vault" : saving}</span>
-        </button>
       </aside>
-      <main id="main" className="main">
-        <div
-          className={view === "tasks" || view === "done" ? "page workspace-page" : "page"}
-          key={view + (filterProject ?? "")}
-        >
-          {(view === "tasks" || view === "done") && project ? (
+      <main id="main" className="main" tabIndex={-1}>
+        <WorkspaceHeading>
+          {project && (view === "tasks" || view === "done") ? (
             <ProjectHeader
+              key={project.id}
               project={project}
               mode={view}
               onMode={(mode) => go(mode, project.id)}
@@ -622,16 +653,23 @@ export default function App() {
               onError={notice}
               onMenu={(anchor) => setProjectMenu({ kind: "project", anchor })}
             />
-          ) : view === "tasks" ? (
-            <header className="planner-header">
-              <div className="planner-title">
-                <h1>My tasks</h1>
-                <time dateTime={s.today}>{longDate}</time>
-              </div>
-              <div className="planner-print" aria-hidden="true" />
-            </header>
           ) : (
-            <header className="page-header"><h1>{titles[view]}</h1></header>
+            <>
+              <h1 ref={view === "trash" ? trashHeading : undefined} tabIndex={view === "trash" ? -1 : undefined}>
+                {view === "tasks" ? "My tasks" : titles[view]}
+              </h1>
+              {view === "tasks" && <time dateTime={s.today}>{longDate}</time>}
+              {view === "trash" && <p>Restore removed tasks to their original list.</p>}
+            </>
+          )}
+        </WorkspaceHeading>
+        <div
+          className={`workspace-scroll${view === "settings" ? " settings-page" : ""}${view === "tasks" && !project ? " my-tasks-page" : ""}`}
+          key={workspaceKey}
+          ref={workspaceScroll}
+        >
+          {project && (view === "tasks" || view === "done") && (
+            <ProjectDescription project={project} onSaved={() => void load()} onError={notice} />
           )}
           {error && (
             <Banner title="Connection interrupted">
@@ -733,32 +771,17 @@ export default function App() {
             <DoneView
               snapshot={s}
               projectId={filterProject}
+              selectedTaskId={openId ?? cursor}
               row={(t) => row(t, { outcome: true, showProject: !filterProject })}
             />
           )}
           {view === "trash" && (
-            <>
-              {s.tasks
-                .filter((t) => t.trashed)
-                .map((t) => (
-                  <div className="trash-row" key={t.id}>
-                    <span className="row-title">
-                      <RichTitle text={t.title} template={s.preferences.issueLinkTemplate} />
-                    </span>
-                    <Button
-                      kind="secondary"
-                      onClick={() => void mutate(t, { trashed: false }, "Restored")}
-                    >
-                      Restore
-                    </Button>
-                  </div>
-                ))}
-              {!s.tasks.some((t) => t.trashed) && (
-                <Empty title="Nothing in Trash.">
-                  Removed tasks stay in the vault and can be restored here.
-                </Empty>
-              )}
-            </>
+            <TrashView
+              snapshot={s}
+              onRestore={(task) => mutate(task, { trashed: false }, "Task restored")}
+              onRestoredFocus={() => trashHeading.current?.focus({ preventScroll: true })}
+              onTasks={() => go("tasks")}
+            />
           )}
           {view === "settings" && (
             <Settings
@@ -921,19 +944,18 @@ export default function App() {
         </button>
       </nav>
       {more && (
-        <div className="sheet-scrim" onClick={() => setMore(false)}>
-          <div className="sheet" onClick={(e) => e.stopPropagation()}>
-            {projectHeading}
-            {projectLinks}
-            <hr />
+        <Modal title="More" className="mobile-sheet" onClose={() => setMore(false)}>
+          {projectHeading}
+          <nav className="nav-group mobile-projects" aria-label="Projects">{projectLinks}</nav>
+          <hr />
+          <nav className="nav-group" aria-label="Workspace tools">
             {navButton("trash", "Trash", "trash")}
             {navButton("settings", "Settings", "settings")}
-            <button className="nav-item" onClick={openMini}>
-              <Icon name="device-desktop" />
-              <span>Mini Today</span>
+            <button className="nav-item" onClick={() => setKeysOpen(true)}>
+              <Icon name="keyboard" size={17} /><span>Shortcuts</span>
             </button>
-          </div>
-        </div>
+          </nav>
+        </Modal>
       )}
       {toast && (
         <div className="toast" key={toast.id} role="status">
@@ -1085,11 +1107,23 @@ export default function App() {
           onProject={(p) => {
             setFind(false);
             go("tasks", p.id);
+            requestAnimationFrame(() => document.querySelector<HTMLElement>(".edit-project-name, .title-h1")?.focus());
           }}
         />
       )}
       {keysOpen && <KeyboardSheet onClose={() => setKeysOpen(false)} />}
     </div>
+  );
+}
+
+function WorkspaceHeading({ children }: { children: React.ReactNode }) {
+  return (
+    <header className="workspace-heading">
+      <div className="workspace-banner">
+        <div className="workspace-title">{children}</div>
+        <div className="workspace-print" aria-hidden="true" />
+      </div>
+    </header>
   );
 }
 
@@ -1109,31 +1143,97 @@ function ProjectHeader({
   onMenu: (anchor: HTMLElement) => void;
 }) {
   const [title, setTitle] = useState(project.title);
-  const [editing, setEditing] = useState(false);
-  const [notes, setNotes] = useState(project.notes.trim());
-  useEffect(() => setTitle(project.title), [project.title]);
+  const [nameError, setNameError] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [editingTitle, setEditingTitle] = useState(false);
+  const nameButton = useRef<HTMLButtonElement>(null);
+  const errorId = useId();
   useEffect(() => {
-    if (!editing) setNotes(project.notes.trim());
-  }, [project.notes, editing]);
-  const save = (patch: { title?: string; notes?: string }) =>
-    call("updateProject", { id: project.id, revision: project.revision, patch })
-      .then(onSaved)
-      .catch((e) => onError(errorMessage(e)));
+    setTitle(project.title);
+    setNameError("");
+  }, [project.title]);
+
+  function finishRename() {
+    setEditingTitle(false);
+    requestAnimationFrame(() => {
+      if (document.activeElement === document.body) nameButton.current?.focus({ preventScroll: true });
+    });
+  }
+
+  async function rename() {
+    if (busy) return;
+    const name = title.trim();
+    if (!name || name === project.title) {
+      setTitle(project.title);
+      setNameError("");
+      finishRename();
+      return;
+    }
+    setBusy(true);
+    setNameError("");
+    try {
+      const updated = await call<Project>("updateProject", {
+        id: project.id,
+        revision: project.revision,
+        patch: { title: name },
+      });
+      setTitle(updated.title);
+      finishRename();
+      onSaved();
+    } catch (error) {
+      if (error instanceof ClientError && error.info.code === "PROJECT_EXISTS") {
+        setNameError(error.message);
+      } else onError(errorMessage(error));
+    } finally {
+      setBusy(false);
+    }
+  }
   return (
-    <header className="page-header project">
-      <span className="swatch big" style={{ background: projectColor(project.id) }} />
-      <input
-        className="title-h1"
-        aria-label="Project name"
-        title={project.title}
-        value={title}
-        maxLength={120}
-        onChange={(e) => setTitle(e.target.value)}
-        onBlur={() => title.trim() && title !== project.title && void save({ title: title.trim() })}
-        onKeyDown={(e) => e.key === "Enter" && e.currentTarget.blur()}
-      />
-      <span className="header-tools">
-        <span className="segmented" role="radiogroup" aria-label="Show">
+    <>
+      <h1 className="project-title" aria-label={project.title}>
+        <span className="swatch" style={{ background: projectColor(project.id) }} />
+        {editingTitle ? (
+          <input
+            className="title-h1"
+            aria-label="Project name"
+            aria-invalid={!!nameError}
+            aria-describedby={nameError ? errorId : undefined}
+            aria-busy={busy}
+            value={title}
+            maxLength={120}
+            readOnly={busy}
+            autoFocus
+            onChange={(e) => {
+              setTitle(e.target.value);
+              setNameError("");
+            }}
+            onBlur={() => void rename()}
+            onKeyDown={(e) => {
+              if (e.nativeEvent.isComposing || busy) return;
+              if (e.key === "Enter") e.currentTarget.blur();
+              if (e.key === "Escape") {
+                setTitle(project.title);
+                setNameError("");
+                finishRename();
+              }
+            }}
+          />
+        ) : (
+          <button
+            type="button"
+            className="edit-project-name"
+            ref={nameButton}
+            aria-label={`Rename ${title}`}
+            title={title}
+            onClick={() => setEditingTitle(true)}
+          >
+            <span>{title}</span>
+          </button>
+        )}
+      </h1>
+      {nameError && <p className="project-name-error" id={errorId} role="alert">{nameError}</p>}
+      <div className="project-header-actions">
+        <span className="segmented" role="group" aria-label="Project tasks">
           {(
             [
               ["tasks", "Open"],
@@ -1143,8 +1243,7 @@ function ProjectHeader({
             <button
               key={value}
               type="button"
-              role="radio"
-              aria-checked={mode === value}
+              aria-pressed={mode === value}
               onClick={() => onMode(value)}
             >
               {label}
@@ -1154,7 +1253,34 @@ function ProjectHeader({
         <button className="icon-button" aria-label="Project actions" onClick={(e) => onMenu(e.currentTarget)}>
           <Icon name="dots" />
         </button>
-      </span>
+      </div>
+    </>
+  );
+}
+
+function ProjectDescription({ project, onSaved, onError }: {
+  project: Project;
+  onSaved: () => void;
+  onError: (message: string) => void;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [notes, setNotes] = useState(project.notes.trim());
+  useEffect(() => {
+    if (!editing) setNotes(project.notes.trim());
+  }, [project.notes, editing]);
+
+  function save() {
+    setEditing(false);
+    if (notes === project.notes.trim()) return;
+    void call("updateProject", {
+      id: project.id,
+      revision: project.revision,
+      patch: { notes: notes ? "\n" + notes + "\n" : "" },
+    }).then(onSaved).catch((error) => onError(errorMessage(error)));
+  }
+
+  return (
+    <div className="project-description">
       {editing ? (
         <textarea
           className="project-notes"
@@ -1163,18 +1289,15 @@ function ProjectHeader({
           rows={Math.min(8, Math.max(2, notes.split("\n").length))}
           value={notes}
           onChange={(e) => setNotes(e.target.value)}
-          onBlur={() => {
-            setEditing(false);
-            if (notes !== project.notes.trim()) void save({ notes: notes ? "\n" + notes + "\n" : "" });
-          }}
+          onBlur={save}
           onKeyDown={(e) => e.key === "Escape" && e.currentTarget.blur()}
         />
       ) : (
-        <button className="sub description" onClick={() => setEditing(true)}>
+        <button className="project-description-button" onClick={() => setEditing(true)}>
           {project.notes.trim().split(/\n\s*\n/)[0] || "Add a description — what belongs here?"}
         </button>
       )}
-    </header>
+    </div>
   );
 }
 

@@ -38,7 +38,7 @@ From now on the owner will mostly use a Claude agent to find, update and close t
 
 ## Constraints
 
-- `app/AGENTS.md` and root `AGENTS.md`: web-only, one vault server, lightweight, Mini route kept, Sites files kept, tests against invented temporary vaults only. The line "Keep the Daylight design" is replaced by this design (owner asked for a revamp).
+- `app/AGENTS.md` and root `AGENTS.md`: web-only, one vault server, lightweight, Sites files kept, tests against invented temporary vaults only. The line "Keep the Daylight design" is replaced by this design (owner asked for a revamp).
 - Inter is already bundled. Serif titles use the system `ui-serif` stack (New York on macOS, Georgia elsewhere): no new font download.
 - The owner runs the real instance in Docker (`compose.yaml`) against `Todo Vault/`. Nothing touches it until the owner approves the rollout step.
 
@@ -48,7 +48,7 @@ From now on the owner will mostly use a Claude agent to find, update and close t
 | --- | --- | --- |
 | Agent access | A) MCP endpoint inside the existing server with a personal token; B) separate stdio MCP program calling the API; C) token plus a CLI | **A.** No extra process, still one vault server, works with Claude Code's HTTP transport. B needs local Node beside Docker; C isn't MCP. |
 | Where categories live | Todo Vault `Projects/` notes; MemexVault page; config file in the repo | **Todo Vault `Projects/`.** The app already reads it and it is the owner's data, not framework code. MemexVault can only be written through its capture inbox (stalled since 2026-11-15), and the Docker server cannot see it. |
-| Unused features | Hide in UI; delete code | **Remove focus from the UI only; tuck deadline, labels, reminder and repeat behind "+".** No migration, notes still load. |
+| Unused features | Hide in UI; delete code | **Remove the unused task focus flag. Tuck deadline, labels, reminder and repeat behind "+".** |
 | Inbox / Today / Upcoming / All | Keep separate; merge | **Merge into Tasks with a Later section.** The owner closes everything from Inbox. |
 
 ## Design
@@ -168,9 +168,8 @@ Project colour comes from a hash of the project id, picked from 8 muted hues. No
 - One scrolling page with sections: Connect an agent; Issue links (`issueLinkTemplate`, for example `https://<site>.atlassian.net/browse/{key}`); Appearance; Vault & Obsidian; Planning (rollover, timezone, week start); Account; Data (import/export, vault status, versions, archived projects).
 - Reuse the existing Settings logic; this is a re-layout.
 
-**Removed from the UI:** focus (checkbox, menu item, Today grouping), page taglines, select mode and bulk toolbar, "Mark ready", the Rename modal and the Add task modal. The engine keeps reading `focus` and ignores it for ordering.
+**Removed from the UI:** focus (checkbox, menu item, Today grouping), page taglines, select mode and bulk toolbar, "Mark ready", the Rename modal and the Add task modal.
 
-**Mini Today:** shows the same "Now" list grouped by project (deadline-passed group first, focus group removed), restyled with the new tokens. Its other behaviour is unchanged.
 
 **Visual system** (tokens are in the mockup's `:root`, light and dark):
 
@@ -183,12 +182,11 @@ Project colour comes from a hash of the project id, picked from 8 muted hues. No
 ### 6. Model and server changes
 
 - `core/task-views.ts`: add `inNow(task, today)` and `isLater(task, today)`; `byPriority` no longer uses `focus`.
-- `core/today.ts`: Mini summary built from `inNow`, grouped by project.
 - `preferences`:
   - Add `issueLinkTemplate: string` (default `""`, max 300, must contain `{key}` when set).
-  - `startPage` becomes `"tasks" | "done"`. The schema must **accept the legacy values** `today | inbox | upcoming | all | projects` and map them to `tasks`, or the vault will refuse to open with an existing `preferences.json`.
+  - `startPage` is `"tasks" | "done"`.
 - `server/auth.ts`: persisted sliding sessions and tokens. `server/app.ts`: `/mcp` route and bearer handling. New `server/mcp.ts` for the tools.
-- No change to the task note format.
+- Task notes no longer define a focus flag.
 
 ### 7. Verification
 
@@ -196,7 +194,7 @@ Project colour comes from a hash of the project id, picked from 8 muted hues. No
   - session persistence, sliding expiry and expiry after 7 idle days
   - token create, use, revoke and wrong-token rejection
   - `/mcp` initialize, tools/list and each tool, including the conflict paths for `append_notes` and `notes`
-  - `inNow`/`isLater`, the Mini summary, and legacy `startPage` mapping
+  - `inNow`/`isLater`, supported start pages
 - **`npm run check`** passes, apart from failures that already exist before the change (record the baseline first).
 - **Browser acceptance** on the sandbox server at desktop and 375 px, light and dark:
   - capture with Enter
@@ -214,7 +212,7 @@ Project colour comes from a hash of the project id, picked from 8 muted hues. No
 2. The owner signs in, creates a token and runs the shown `claude mcp add` command themselves.
 3. Seed the category projects (section 4) and set the issue-link template.
 4. Link `~/.claude/skills/todo-tasks` to the repo skill, and add a short routing rule to `~/.claude/CLAUDE.md` via `skill-edit`.
-5. Update `app/AGENTS.md` (Daylight line), `README.md`, `docs/ux.md`, `docs/mini-today.md` and `docs/agent-skills.md`.
+5. Update `app/AGENTS.md` (Daylight line), `README.md`, `docs/ux.md` and `docs/agent-skills.md`.
 
 No commits unless the owner asks.
 

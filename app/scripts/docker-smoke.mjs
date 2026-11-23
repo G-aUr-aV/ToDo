@@ -63,7 +63,7 @@ async function run() {
     `type=bind,src=${vault},dst=/vault`,
     "--mount",
     `type=bind,src=${state},dst=/state`,
-    "todo-daylight:0.1.0",
+    process.env.TODO_SMOKE_IMAGE ?? "todo-daylight:0.1.0",
   );
   await ready();
 }
@@ -84,14 +84,10 @@ try {
   await run();
   assert.equal((await request("/api/workspace")).status, 401);
   assert.ok((await fs.stat(path.join(vault, "Home.md"))).isFile());
-  assert.equal((await request("/api/today")).status, 401);
-  const miniShell = await request("/mini");
-  assert.equal(miniShell.status, 200);
-  assert.match(await miniShell.text(), /Today — Todo Mini/);
-  assert.equal(miniShell.headers.get("cache-control"), "no-cache");
-  const manifest = await request("/mini.webmanifest");
-  assert.equal((await manifest.json()).start_url, "/mini");
-  assert.equal(manifest.headers.get("cache-control"), "no-cache");
+  const page = await request("/");
+  assert.equal(page.status, 200);
+  assert.match(await page.text(), /<title>Todo<\/title>/);
+  assert.equal(page.headers.get("cache-control"), "no-cache");
   await login();
   const created = await request("/api/tasks", "POST", {
     requestId: randomUUID(),
@@ -104,11 +100,6 @@ try {
   });
   assert.equal(created.status, 200);
   const task = await created.json();
-  const mini = await request("/api/today");
-  assert.equal(mini.headers.get("cache-control"), "no-store");
-  const today = await mini.json();
-  assert.equal(typeof today.count, "number");
-  assert.doesNotMatch(JSON.stringify(today), /Check recreation|"notes"|"path"/);
   const file = path.join(vault, task.path);
   assert.equal((await fs.stat(file)).uid, process.getuid());
   assert.equal(
@@ -161,8 +152,7 @@ try {
   await docker("stop", name);
   await docker("rm", name);
   await run();
-  assert.equal((await request("/api/workspace")).status, 401);
-  await login();
+  assert.equal((await request("/api/workspace")).status, 200);
   snapshot = await (await request("/api/workspace")).json();
   const persisted = snapshot.tasks.find((t) => t.id === task.id);
   assert.equal(persisted.status, "done");
@@ -180,8 +170,7 @@ try {
     realVaultUsed: false,
     checks: [
       "unauthenticated access denied",
-      "Mini shell and separate install manifest available",
-      "authenticated metadata-only Today endpoint with no-store caching",
+      "web page is served without stale shell caching",
       "empty bind mount initialized as complete Obsidian vault",
       "authenticated task write",
       "rollover persisted without changing deadline",
@@ -194,7 +183,7 @@ try {
       "unknown property preserved",
       "recovery version recorded",
       "container recreation preserves task and recovery",
-      "sessions expire on process restart",
+      "sign-in survives container recreation",
       "read-only root, dropped capabilities, loopback binding",
     ],
     temporaryFixtureCleanedAfterRun: true,

@@ -10,7 +10,6 @@ const task = (patch: Partial<Task>): Task =>
     status: "inbox",
     scheduled: null,
     due: null,
-    focus: false,
     trashed: false,
     createdAt: "2026-11-01T00:00:00Z",
     ...patch,
@@ -41,12 +40,12 @@ test("completed and trashed tasks are in neither list", () => {
   }
 });
 
-test("ordering ignores focus and puts deadlines first, then oldest", () => {
-  const focused = task({ id: "f", focus: true, createdAt: "2026-11-10T00:00:00Z" });
+test("ordering puts deadlines first, then oldest", () => {
+  const newer = task({ id: "n", createdAt: "2026-11-10T00:00:00Z" });
   const older = task({ id: "o", createdAt: "2026-11-02T00:00:00Z" });
   const due = task({ id: "d", due: "2026-11-30", createdAt: "2026-11-15T00:00:00Z" });
   assert.deepEqual(
-    [focused, older, due].sort(byPriority).map((t) => t.id),
-    ["d", "o", "f"],
+    [newer, older, due].sort(byPriority).map((t) => t.id),
+    ["d", "o", "n"],
   );
 });

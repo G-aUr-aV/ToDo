@@ -8,7 +8,7 @@ import {
 import { createPortal } from "react-dom";
 import { Icon } from "./components";
 
-/** A small menu anchored to a button. Esc, outside clicks and Tab close it. */
+/** A small menu anchored to a button. Escape, outside clicks and tabbing out close it. */
 export function Popover({
   anchor,
   onClose,
@@ -46,12 +46,10 @@ export function Popover({
     };
   }, [anchor]);
   useEffect(() => {
-    const items = () => [
-      ...ref.current!.querySelectorAll<HTMLElement>(
-        "[role=menuitem]:not([disabled]),input,button:not([disabled])",
-      ),
-    ];
     const node = ref.current!;
+    const items = () => [
+      ...node.querySelectorAll<HTMLElement>("input:not([disabled]),button:not([disabled])"),
+    ].filter((item) => item.offsetParent !== null);
     (
       node.querySelector<HTMLElement>("[autofocus]") ??
       node.querySelector<HTMLElement>("[role=menuitem].active") ??
@@ -68,13 +66,24 @@ export function Popover({
         e.stopPropagation();
         close.current();
         anchor.focus();
-      } else if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+      } else if (
+        (e.key === "ArrowDown" || e.key === "ArrowUp") &&
+        (e.target as HTMLElement).matches('[role="menuitem"]')
+      ) {
         const list = items().filter((n) => n.getAttribute("role") === "menuitem");
         if (!list.length) return;
         e.preventDefault();
         const i = list.indexOf(document.activeElement as HTMLElement);
         list[(i + (e.key === "ArrowDown" ? 1 : -1) + list.length) % list.length].focus();
-      } else if (e.key === "Tab") close.current();
+      } else if (e.key === "Tab") {
+        const tabbable = items().filter((item) => item.tabIndex >= 0);
+        const edge = e.shiftKey ? tabbable[0] : tabbable.at(-1);
+        if (document.activeElement === edge) {
+          e.preventDefault();
+          close.current();
+          anchor.focus({ preventScroll: true });
+        }
+      }
     };
     document.addEventListener("mousedown", down);
     node.addEventListener("keydown", key);

@@ -12,7 +12,6 @@ import {
   validTimestamp,
 } from "../core/model";
 import { nextOccurrence, shiftReminder } from "../core/recurrence";
-import { todaySummary } from "../core/today";
 
 async function fixture(t: test.TestContext, initial = "2026-10-15T10:00:00Z") {
   const dir = await fs.mkdtemp(path.join(await fs.realpath(os.tmpdir()), "todo-lifecycle-"));
@@ -126,7 +125,7 @@ test("existing preference files acquire auto rollover default without repair", a
   assert.equal((await f.vault.snapshot()).preferences.autoRollover, true);
 });
 
-test("reminders persist through Obsidian notes and Mini includes reminders outside Today", async (t) => {
+test("reminders on future tasks persist in the workspace and Obsidian notes", async (t) => {
   const f = await fixture(t);
   const task = await create(f.vault, {
     scheduled: "2026-11-01",
@@ -140,21 +139,11 @@ test("reminders persist through Obsidian notes and Mini includes reminders outsi
       .reminder_at,
     task.reminder,
   );
-  const mini = todaySummary(snapshot);
-  assert.equal(mini.count, 0);
-  assert.deepEqual(mini.reminders, [
-    {
-      id: task.id,
-      title: task.title,
-      revision: task.revision,
-      reminder: task.reminder,
-    },
-  ]);
   const dismissed = await f.vault.updateTask(task.id, task.revision, {
     reminder: null,
   });
   assert.equal(dismissed.reminder, null);
-  assert.equal(todaySummary(await f.vault.snapshot()).reminders.length, 0);
+  assert.equal((await f.vault.snapshot()).tasks[0].reminder, null);
 });
 
 test("invalid reminders and repetition metadata cannot corrupt an existing note", async (t) => {
@@ -196,7 +185,6 @@ test("a recurring completion preserves history, deadlines and unknown data and c
     due: "2026-10-17",
     reminder: "2026-10-15T09:00:00+05:30",
     repeat: { frequency: "weekly", interval: 1 },
-    focus: true,
     notes: "- [x] A checklist\n\n```md\n- [x] Code sample\n```\n",
   });
   const parsed = parseNote(
@@ -218,7 +206,6 @@ test("a recurring completion preserves history, deadlines and unknown data and c
   assert.equal(next.due, "2026-10-24");
   assert.equal(next.reminder, "2026-10-22T03:30:00.000Z");
   assert.equal(next.recurrenceSourceId, task.id);
-  assert.equal(next.focus, false);
   assert.match(next.notes, /\[ \] A checklist/);
   assert.match(next.notes, /```md\n- \[x\] Code sample/);
   assert.equal(

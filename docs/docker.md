@@ -36,7 +36,7 @@ docker compose up -d --build
 
 Stopping or recreating the container retains the bind-mounted vault and state. Keep those directories. `/healthz` reports process liveness; `/readyz` checks the vault and write capability. Docker's healthcheck probes readiness every 30 seconds; readiness rechecks task/state write access. Event connections close before shutdown so an open browser cannot hold a normal stop indefinitely.
 
-Only one Todo server engine opens a vault for writing. Full and Mini browser windows all connect to that server. The fixed hidden `.todo-writer.lock` directory coordinates ownership even when the same folder has different container/host paths. A crashed lease becomes stale after 30 seconds; never remove a live writer's lock.
+Only one Todo server engine opens a vault for writing. Browser tabs connect to that server. The fixed hidden `.todo-writer.lock` directory coordinates ownership even when the same folder has different container/host paths. A crashed lease becomes stale after 30 seconds; never remove a live writer's lock.
 
 ## Backups and recovery
 

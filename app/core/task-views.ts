@@ -1,15 +1,6 @@
-import type { Task, Project } from "./model";
+import type { Task } from "./model";
 export function active(task: Task) {
   return !task.trashed && task.status !== "done";
-}
-export function inToday(task: Task, today: string) {
-  return (
-    active(task) &&
-    !!(
-      (task.scheduled && task.scheduled <= today) ||
-      (task.due && task.due <= today)
-    )
-  );
 }
 // Work to do now: anything without a future plan date. A deadline that is due
 // keeps a task here even when its plan date was moved ahead.
@@ -29,7 +20,4 @@ export function byPriority(a: Task, b: Task) {
     a.createdAt.localeCompare(b.createdAt) ||
     a.id.localeCompare(b.id)
   );
-}
-export function projectFor(task: Task, projects: Project[]) {
-  return projects.find((p) => p.id === task.projectId);
 }

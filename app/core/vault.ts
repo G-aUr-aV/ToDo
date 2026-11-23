@@ -63,6 +63,8 @@ const slug = (value: string) =>
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/^-|-$/g, "")
     .slice(0, 80) || "task";
+const projectNameKey = (title: string) =>
+  title.trim().replace(/\s+/g, " ").normalize("NFC").toLowerCase();
 const now = () => new Date();
 const nextTaskId = (id: string) => {
   const hex = hash("todo-next-occurrence:" + id)
@@ -156,7 +158,7 @@ export class Vault extends EventEmitter {
       await fs.writeFile(probe, "ready", { flag: "wx", mode: 0o600 });
       await fs.unlink(probe);
       try {
-        this.preferences = preferenceSchema.parse(
+        this.preferences = preferenceSchema.strip().parse(
           JSON.parse(
             await fs.readFile(
               path.join(this.state, "preferences.json"),
@@ -623,7 +625,6 @@ export class Vault extends EventEmitter {
       reminder_at: task.reminder
         ? shiftReminder(task.reminder, shift, this.preferences.timezone)
         : null,
-      focus: false,
       trashed: false,
       created_at: time,
       updated_at: time,
@@ -735,6 +736,22 @@ export class Vault extends EventEmitter {
       );
     return r;
   }
+  private assertProjectNameAvailable(title: string, currentId?: string) {
+    const name = projectNameKey(title);
+    for (const { kind, entity } of this.records.values()) {
+      if (
+        kind === "project" &&
+        entity.id !== currentId &&
+        projectNameKey(entity.title) === name
+      ) {
+        throw new AppError(
+          409,
+          "PROJECT_EXISTS",
+          `A project named "${entity.title}" already exists.`,
+        );
+      }
+    }
+  }
   private projectLink(id: string | null) {
     if (!id) return null;
     const project = this.get(id, "project").entity as Project;
@@ -780,7 +797,6 @@ export class Vault extends EventEmitter {
         scheduled: rest.scheduled ?? null,
         due: rest.due ?? null,
         project: this.projectLink(projectId ?? null),
-        focus: rest.focus ?? false,
         trashed: rest.trashed ?? false,
         tags: rest.tags ?? [],
         created_at: time,
@@ -831,6 +847,7 @@ export class Vault extends EventEmitter {
           );
         return existing.entity as Project;
       }
+      this.assertProjectNameAvailable(values.title);
       const time = this.clock().toISOString();
       const rel = `Projects/${slug(values.title)}--${values.requestId}.md`;
       const file = await this.safe(rel);
@@ -951,6 +968,8 @@ export class Vault extends EventEmitter {
             : null,
         );
       }
+    } else if (typeof patch.title === "string" && patch.title !== r.entity.title) {
+      this.assertProjectNameAvailable(patch.title, id);
     }
     if (Object.hasOwn(patch, "notes")) {
       parsed.body = patch.notes as string;
@@ -1296,7 +1315,7 @@ export async function createVault(
     await fs.mkdir(path.join(root, name));
   await fs.writeFile(
     path.join(root, "Home.md"),
-    "# Todo Vault\n\nThis vault owns your Todo data. Tasks are ordinary Markdown notes in `Tasks/`; project context lives in `Projects/`. Open this folder in Obsidian or let your local assistant read these notes.\n\n## Reading progress\n\nEach task has YAML properties: `status` (`inbox`, `todo`, `doing`, `done`), `scheduled` (the planned work day), `due` (the deadline), `completed_at`, `tags`, and a project wiki link. The Markdown body holds notes and checklists. Completed and trashed tasks remain here for history; ignore `trashed: true` when reviewing active work. Keep each note's UUID `id` unchanged.\n\n## Day-by-day task lists\n\nOpen [[Days/README|Day-by-day tasks]], or read `Days/YYYY-MM-DD.md` directly to review one day without scanning every task. Each entry links to its actual task note. Completed tasks are struck through on their completion day; open tasks use their planned date, or deadline if no plan is set. Rescheduling and rollover remove unfinished tasks from the earlier day. [[Days/Unscheduled|Unscheduled tasks]] holds notes without either date. Dates follow the workspace timezone. These lists refresh while Todo is running; edit linked task notes, not the generated lists.\n\n## Planning and reminders\n\nUnfinished scheduled tasks roll forward to today in the workspace timezone by default. `original_scheduled`, `rollover_count`, and `last_rolled_at` explain the moves; deadlines are preserved. Turn this off in Todo settings if you prefer manual planning. `reminder_at` is an ISO timestamp with a timezone; browser reminders need Todo or Mini Today open.\n\n## Repeating tasks\n\nUse `repeat: { frequency: daily, interval: 1 }` (also `weekly` or `monthly`). Completing an occurrence retains its history and creates one future task, skipping missed occurrences. Month-end dates clamp to the last day and recover their original day in longer months. `recurrence_source_id` and `next_occurrence_id` link the history.\n\nYou can edit Markdown and custom YAML properties in Obsidian. Todo preserves unrelated properties, comments, and note content. Avoid editing the same note simultaneously in both apps; Todo pauses a stale save so you can keep your draft.\n",
+    "# Todo Vault\n\nThis vault owns your Todo data. Tasks are ordinary Markdown notes in `Tasks/`; project context lives in `Projects/`. Open this folder in Obsidian or let your local assistant read these notes.\n\n## Reading progress\n\nEach task has YAML properties: `status` (`inbox`, `todo`, `doing`, `done`), `scheduled` (the planned work day), `due` (the deadline), `completed_at`, `tags`, and a project wiki link. The Markdown body holds notes and checklists. Completed and trashed tasks remain here for history; ignore `trashed: true` when reviewing active work. Keep each note's UUID `id` unchanged.\n\n## Day-by-day task lists\n\nOpen [[Days/README|Day-by-day tasks]], or read `Days/YYYY-MM-DD.md` directly to review one day without scanning every task. Each entry links to its actual task note. Completed tasks are struck through on their completion day; open tasks use their planned date, or deadline if no plan is set. Rescheduling and rollover remove unfinished tasks from the earlier day. [[Days/Unscheduled|Unscheduled tasks]] holds notes without either date. Dates follow the workspace timezone. These lists refresh while Todo is running; edit linked task notes, not the generated lists.\n\n## Planning and reminders\n\nUnfinished scheduled tasks roll forward to today in the workspace timezone by default. `original_scheduled`, `rollover_count`, and `last_rolled_at` explain the moves; deadlines are preserved. Turn this off in Todo settings if you prefer manual planning. `reminder_at` is an ISO timestamp with a timezone; browser reminders need Todo open.\n\n## Repeating tasks\n\nUse `repeat: { frequency: daily, interval: 1 }` (also `weekly` or `monthly`). Completing an occurrence retains its history and creates one future task, skipping missed occurrences. Month-end dates clamp to the last day and recover their original day in longer months. `recurrence_source_id` and `next_occurrence_id` link the history.\n\nYou can edit Markdown and custom YAML properties in Obsidian. Todo preserves unrelated properties, comments, and note content. Avoid editing the same note simultaneously in both apps; Todo pauses a stale save so you can keep your draft.\n",
     { flag: "wx" },
   );
   await fs.writeFile(path.join(root, ".obsidian/app.json"), "{}\n", {
