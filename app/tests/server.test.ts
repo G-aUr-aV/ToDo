@@ -123,6 +123,20 @@ test("wrong hosts, cross-origin writes and missing CSRF tokens are denied", asyn
   );
   assert.equal((await f.vault.snapshot()).tasks.length, 0);
 });
+test("workspace operations send JSON when a browser asks for HTML", async (t) => {
+  const f = await fixture(t);
+  const title = "Draft <review> & notes";
+  const response = await f.app.inject({
+    method: "POST",
+    url: "/api/tasks",
+    headers: { ...f.headers, accept: "text/html" },
+    payload: { title, requestId: randomUUID() },
+  });
+  assert.equal(response.statusCode, 200);
+  assert.match(String(response.headers["content-type"]), /^application\/json\b/);
+  assert.equal(response.headers["x-content-type-options"], "nosniff");
+  assert.equal(response.json().title, title);
+});
 test("HTTP mutations require revisions and reject stale updates", async (t) => {
   const f = await fixture(t);
   const create = await f.app.inject({

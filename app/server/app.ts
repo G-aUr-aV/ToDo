@@ -184,7 +184,7 @@ export async function createServer({
     app.route({
       method: route.method,
       url: route.path,
-      handler: async (req) => {
+      handler: async (req, reply) => {
         const params = req.params as { id?: string };
         let payload: unknown = req.body;
         if (operation === "versions") payload = { id: params.id };
@@ -204,7 +204,8 @@ export async function createServer({
         } else if (operation === "restore") {
           payload = { ...(req.body as object), id: params.id };
         }
-        return operate(vault, operation, payload);
+        const result = await operate(vault, operation, payload);
+        return reply.type("application/json").send(result);
       },
     });
   }
