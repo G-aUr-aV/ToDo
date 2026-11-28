@@ -1,8 +1,9 @@
 import { build } from "esbuild";
 
 await build({
-  entryPoints: ["server/main.ts"],
-  outfile: "dist/server/main.cjs",
+  entryPoints: { main: "server/main.ts", "storage-cli": "migration/cli.ts" },
+  outdir: "dist/server",
+  outExtension: { ".js": ".cjs" },
   platform: "node",
   format: "cjs",
   target: "node24",

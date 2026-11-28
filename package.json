@@ -7,10 +7,13 @@
     "test": "npm --prefix app test",
     "check": "npm --prefix app run check",
     "start": "node app/scripts/start.mjs",
+    "migrate": "node app/dist/server/storage-cli.cjs import",
+    "backup": "node app/dist/server/storage-cli.cjs backup",
+    "restore": "node app/dist/server/storage-cli.cjs restore",
     "setup": "node app/scripts/setup.mjs",
     "test:setup": "npm --prefix app run test:setup"
   },
-  "description": "A lightweight, self-hosted task app backed by an Obsidian vault.",
+  "description": "A lightweight, self-hosted task app backed by SQLite.",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/G-aUr-aV/ToDo.git"

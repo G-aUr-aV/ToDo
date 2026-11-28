@@ -1,14 +1,14 @@
 import fs from "node:fs/promises";
+import os from "node:os";
 import path from "node:path";
-import { constants } from "node:fs";
+import { constants, createReadStream } from "node:fs";
 import Fastify from "fastify";
 import cookie from "@fastify/cookie";
 import rateLimit from "@fastify/rate-limit";
 import staticFiles from "@fastify/static";
 import { z } from "zod";
-import { Vault } from "../core/vault";
 import { AppError } from "../core/model";
-import { operate, operations, errorData } from "../core/operations";
+import { operate, operations, errorData, type Workspace } from "../core/operations";
 import { Auth, WEEK } from "./auth";
 import { handleMcp } from "./mcp";
 import { routeFor } from "../core/protocol";
@@ -18,7 +18,7 @@ export async function createServer({
   publicOrigin,
   clientDir,
 }: {
-  vault: Vault;
+  vault: Workspace;
   auth: Auth;
   publicOrigin: string;
   clientDir?: string;
@@ -180,6 +180,8 @@ export async function createServer({
     return { ok: true };
   });
   for (const operation of operations) {
+    if (operation === "bulkSchedule" && !("bulkSchedule" in vault)) continue;
+    if (["adopt", "previewImport", "importNotes", "exportNotes"].includes(operation) && !("adopt" in vault)) continue;
     const route = routeFor[operation];
     app.route({
       method: route.method,
@@ -206,6 +208,33 @@ export async function createServer({
         }
         return operate(vault, operation, payload);
       },
+    });
+  }
+  if ("backupTo" in vault) {
+    app.get("/api/backup", async (request, reply) => {
+      const directory = await fs.mkdtemp(path.join(os.tmpdir(), "todo-backup-"));
+      const file = path.join(directory, "todo.sqlite");
+      const remove = () => fs.rm(directory, { force: true, recursive: true }).catch(() => undefined);
+      try {
+        await vault.backupTo(file);
+        const { size } = await fs.stat(file);
+        if (request.raw.aborted || reply.raw.destroyed) {
+          await remove();
+          return;
+        }
+        const stream = createReadStream(file);
+        stream.once("close", () => void remove());
+        reply.raw.once("close", () => stream.destroy());
+        const day = new Date().toISOString().slice(0, 10);
+        return reply
+          .type("application/octet-stream")
+          .header("Content-Disposition", `attachment; filename="todo-${day}.sqlite"`)
+          .header("Content-Length", size)
+          .send(stream);
+      } catch (error) {
+        await remove();
+        throw error;
+      }
     });
   }
   app.post(
@@ -266,6 +295,10 @@ export async function createServer({
   app.get("/healthz", async () => ({ status: "ok" }));
   app.get("/readyz", async (_req, reply) => {
     try {
+      if ("ready" in vault) {
+        await vault.ready();
+        return { ready: true };
+      }
       await vault.snapshot();
       // Recheck access after startup: mounts can become read-only while the process stays alive.
       await Promise.all([

@@ -1,4 +1,4 @@
-// Uses a disposable vault, never the owner's Todo Vault. Requires Docker.
+// Uses a disposable SQLite workspace. Requires Docker.
 import fs from "node:fs/promises";
 import path from "node:path";
 import os from "node:os";
@@ -14,7 +14,8 @@ const state = path.join(dir, "state");
 await fs.mkdir(vault);
 await fs.mkdir(state, { mode: 0o700 });
 const name = `todo-smoke-${randomUUID().slice(0, 8)}`;
-const origin = "http://localhost:4312";
+const port = process.env.TODO_DOCKER_SMOKE_PORT ?? "4312";
+const origin = "http://localhost:" + port;
 let cookie = "",
   csrf = "";
 async function request(route, method = "GET", body, revision) {
@@ -56,11 +57,11 @@ async function run() {
     "--user",
     `${process.getuid()}:${process.getgid()}`,
     "-p",
-    "127.0.0.1:4312:3000",
+    `127.0.0.1:${port}:3000`,
     "-e",
     `PUBLIC_ORIGIN=${origin}`,
     "--mount",
-    `type=bind,src=${vault},dst=/vault`,
+    `type=bind,src=${vault},dst=/vault,readonly`,
     "--mount",
     `type=bind,src=${state},dst=/state`,
     process.env.TODO_SMOKE_IMAGE ?? "todo-daylight:0.1.0",
@@ -83,7 +84,7 @@ async function login() {
 try {
   await run();
   assert.equal((await request("/api/workspace")).status, 401);
-  assert.ok((await fs.stat(path.join(vault, "Home.md"))).isFile());
+  assert.deepEqual(await fs.readdir(vault), []);
   const page = await request("/");
   assert.equal(page.status, 200);
   assert.match(await page.text(), /<title>Todo<\/title>/);
@@ -100,17 +101,15 @@ try {
   });
   assert.equal(created.status, 200);
   const task = await created.json();
-  const file = path.join(vault, task.path);
-  assert.equal((await fs.stat(file)).uid, process.getuid());
+  const database = await fs.stat(path.join(state, "todo.sqlite"));
+  assert.equal(database.uid, process.getuid());
+  assert.equal(database.mode & 0o777, 0o600);
   assert.equal(
     (await fs.stat(path.join(state, "owner.json"))).mode & 0o777,
     0o600,
   );
-  const original = await fs.readFile(file, "utf8");
-  const external = original
-    .replace("type: task", "type: task\nexternal_property: preserved")
-    .replace("Check recreation", "Edited on the host");
-  await fs.writeFile(file, external);
+  const edit = await request(`/api/tasks/${task.id}`, "PATCH", { notes: "Edited in another client" }, task.revision);
+  assert.equal(edit.status, 200);
   const conflict = await request(
     `/api/tasks/${task.id}`,
     "PATCH",
@@ -118,9 +117,10 @@ try {
     task.revision,
   );
   assert.equal(conflict.status, 409);
-  assert.equal(await fs.readFile(file, "utf8"), external);
   let snapshot = await (await request("/api/workspace")).json();
   const current = snapshot.tasks.find((t) => t.id === task.id);
+  assert.equal(snapshot.storage, "sqlite");
+  assert.equal(current.notes, "Edited in another client");
   const changed = await request(
     `/api/tasks/${task.id}`,
     "PATCH",
@@ -133,7 +133,7 @@ try {
   assert.equal(completed.reminder, "2099-10-22T09:00:00+05:30");
   const repeated = await (await request("/api/workspace")).json();
   assert.equal(repeated.tasks.filter((t) => t.recurrenceSourceId === task.id).length, 1, JSON.stringify({ tasks: repeated.tasks.map(({ id, status, repeat, recurrenceSourceId, nextOccurrenceId }) => ({ id, status, repeat, recurrenceSourceId, nextOccurrenceId })), diagnostics: repeated.diagnostics }));
-  assert.match(await fs.readFile(file, "utf8"), /reminder_at:|repeat:/);
+  assert.deepEqual(completed.repeat, { frequency: "daily", interval: 1 });
   const rolled = await request("/api/tasks", "POST", {
     requestId: randomUUID(), title: "Old unfinished plan", scheduled: "2000-01-01", due: "2000-01-03",
   });
@@ -144,7 +144,9 @@ try {
   assert.equal(rolledTask.scheduled, rolloverSnapshot.today);
   assert.equal(rolledTask.due, "2000-01-03");
   assert.ok(rolledTask.rolloverCount >= 1);
-  assert.match(await fs.readFile(file, "utf8"), /external_property: preserved/);
+  const backup = await request("/api/backup");
+  assert.equal(backup.status, 200);
+  assert.equal(Buffer.from(await backup.arrayBuffer()).subarray(0, 16).toString(), "SQLite format 3\0");
   const versions = await (
     await request(`/api/tasks/${task.id}/versions`)
   ).json();
@@ -157,7 +159,8 @@ try {
   const persisted = snapshot.tasks.find((t) => t.id === task.id);
   assert.equal(persisted.status, "done");
   assert.equal(persisted.due, "2026-10-22");
-  assert.match(persisted.notes, /Edited on the host/);
+  assert.match(persisted.notes, /Edited in another client/);
+  assert.deepEqual(await fs.readdir(vault), []);
   assert.ok(
     (await (await request(`/api/tasks/${task.id}/versions`)).json()).length > 0,
   );
@@ -166,21 +169,21 @@ try {
     passed: true,
     checkedAt: new Date().toISOString(),
     image: inspected.Image,
-    platform: "linux/arm64",
+    platform: `${process.platform}/${process.arch}`,
     realVaultUsed: false,
     checks: [
       "unauthenticated access denied",
       "web page is served without stale shell caching",
-      "empty bind mount initialized as complete Obsidian vault",
+      "fresh SQLite workspace leaves the read-only legacy mount empty",
       "authenticated task write",
       "rollover persisted without changing deadline",
-      "reminder metadata retained in Markdown",
+      "reminder and repeat metadata kept in workspace records",
       "recurrence creates one linked successor",
       "host file ownership",
       "owner configuration mode 0600",
-      "external host edit observed",
+      "second client mutation observed",
       "stale write rejected without data loss",
-      "unknown property preserved",
+      "database backup downloadable",
       "recovery version recorded",
       "container recreation preserves task and recovery",
       "sign-in survives container recreation",

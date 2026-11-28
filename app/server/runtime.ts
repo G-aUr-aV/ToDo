@@ -1,6 +1,8 @@
 import fs from "node:fs/promises";
 import path from "node:path";
-import { createVault } from "../core/vault";
+import { DatabaseSync } from "node:sqlite";
+import { SqliteWorkspace } from "../core/sqlite-workspace";
+import { acquire, databaseFile, exists, missing, ordinaryDirectory, ordinaryFile, restorePending, separate, storageLock } from "../migration/files";
 
 export type RuntimeConfig = {
   port: number;
@@ -38,40 +40,83 @@ export function runtimeConfig(
     throw new Error(
       "PUBLIC_ORIGIN must contain only the http:// or https:// scheme, hostname and optional port.",
     );
-  if (root === state || state.startsWith(root + path.sep))
-    throw new Error("STATE_PATH must be outside VAULT_PATH so credentials stay outside your notes.");
+  separate(root, state);
   return { port, host, root, state, publicOrigin: origin.origin };
 }
 
-export async function prepareVault(root: string) {
+async function canonicalPath(location: string): Promise<string> {
   try {
-    const stat = await fs.lstat(root);
-    if (stat.isSymbolicLink() || !stat.isDirectory())
-      throw new Error("VAULT_PATH must be an ordinary folder, not a file or symlink.");
-    if ((await fs.readdir(root)).length === 0) {
-      // Docker bind mounts exist before startup. Share the same exclusive scaffold.
-      await createVault(root, { existingEmpty: true });
-      return true;
-    }
-    return false;
+    return await fs.realpath(location);
   } catch (error) {
-    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+    if (!missing(error)) throw error;
+    return path.join(await canonicalPath(path.dirname(location)), path.basename(location));
   }
-  // createVault uses exclusive folder creation. Existing notes and vaults are never replaced.
-  await fs.mkdir(path.dirname(root), { recursive: true });
-  await createVault(root);
-  return true;
 }
 
-export async function validateStoragePaths(root: string, state: string) {
+function migrationRecorded(database: string) {
+  const db = new DatabaseSync(database, { readOnly: true });
+  try {
+    if (!db.prepare("SELECT 1 FROM sqlite_schema WHERE name = 'settings' AND type = 'table'").get()) return false;
+    return !!db.prepare("SELECT 1 FROM settings WHERE key = 'legacyMigration'").get();
+  } finally {
+    db.close();
+  }
+}
+
+export async function openWorkspace(root: string, state: string) {
+  const [realRoot, realState] = await Promise.all([canonicalPath(root), canonicalPath(state)]);
+  separate(realRoot, realState);
   await fs.mkdir(state, { recursive: true, mode: 0o700 });
-  const stateStat = await fs.lstat(state);
-  if (stateStat.isSymbolicLink() || !stateStat.isDirectory())
-    throw new Error("STATE_PATH must be an ordinary folder, not a file or symlink.");
-  const [realRoot, realState] = await Promise.all([
-    fs.realpath(root),
-    fs.realpath(state),
-  ]);
-  if (realRoot === realState || realState.startsWith(realRoot + path.sep))
-    throw new Error("STATE_PATH must be outside VAULT_PATH so credentials stay outside your notes.");
+  const stateDirectory = await ordinaryDirectory(state);
+  const lease = await acquire(stateDirectory, storageLock);
+  let workspace: SqliteWorkspace | undefined;
+  try {
+    if (await exists(path.join(stateDirectory, restorePending))) {
+      throw new Error("A Todo restore is pending. Finish recovery before starting the server.");
+    }
+    const database = path.join(stateDirectory, databaseFile);
+    const hasDatabase = await exists(database);
+    if (hasDatabase) await ordinaryFile(database);
+    if (!(hasDatabase && migrationRecorded(database)) && await exists(root)) {
+      await ordinaryDirectory(root);
+      if ((await fs.readdir(root)).length) {
+        throw new Error("An existing Markdown vault needs migration before Todo can open. Run npm run migrate -- --vault <VAULT_PATH> --state <STATE_PATH> --dry-run first.");
+      }
+    }
+    if (!hasDatabase) {
+      const existingState = [
+        "owner.json", "initial-login.txt", "sessions.json", "tokens.json",
+        "preferences.json", "versions",
+        ...["wal", "shm", "journal"].map((suffix) => databaseFile + "-" + suffix),
+      ];
+      for (const name of existingState) {
+        if (await exists(path.join(stateDirectory, name))) {
+          throw new Error("Existing Todo state has no todo.sqlite database. Check the configured state and legacy vault mounts, then restore a backup or migrate the original vault.");
+        }
+      }
+      const handle = await fs.open(database, "wx", 0o600);
+      await handle.close();
+    }
+    lease.check();
+    workspace = new SqliteWorkspace(database, undefined, lease.check);
+    workspace.start();
+    const current = workspace;
+    return {
+      workspace: current,
+      async close() {
+        try {
+          current.close();
+        } finally {
+          await lease.release();
+        }
+      },
+    };
+  } catch (error) {
+    try {
+      workspace?.close();
+    } finally {
+      await lease.release();
+    }
+    throw error;
+  }
 }

@@ -47,8 +47,7 @@ export function MarkdownNote({
             ),
           img: ({ alt }) => (
             <span className="muted">
-              {alt ? `Image: ${alt}` : "Image in the note"} — open in Obsidian
-              to view
+              {alt ? `Image: ${alt}` : "Image in the note"} · attachment unavailable
             </span>
           ),
         }}

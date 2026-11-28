@@ -5,21 +5,19 @@ description: Manage the owner's personal tasks in Todo from any project. Use to 
 
 # Todo Tasks
 
-Todo is the owner's personal task list. Each task is a Markdown note in the live Todo Vault, and one Todo server owns every write. Distinguish personal tasks from steps in the current coding assignment. A request to list or suggest priorities does not authorize changing the plan.
+Todo is the owner's personal task list. The live Todo server stores tasks in SQLite and owns every write. Distinguish personal tasks from steps in the current coding assignment. A request to list or suggest priorities does not authorize changing the plan.
 
 ## Connect
 
-- **Use the `todo` MCP tools** when they are available: `find_tasks`, `get_task`, `add_task`, `update_task`, `complete_task`, `reopen_task`, `list_projects`, `add_project`. They go through the server, so revisions, recovery versions and day lists stay correct.
-- **Without them**, write through a signed-in Todo browser tab using [the API workflow](references/api.md). If neither is available, read the vault files only and tell the owner to connect an agent in Todo under **Settings → Agent access**.
-- Never hand-edit task notes, generated day lists, locks or private state, never start a second server, and never read or print tokens, passwords or cookies.
-
-To read files directly, use the installation the owner named or recorded in user instructions; otherwise resolve this skill's real path and walk up from `<checkout>/.agents/skills/todo-tasks` to the checkout (it contains `app/package.json`). The vault is `VAULT_PATH` (relative to `app/`, default `<checkout>/Todo Vault`) or, for Docker, the host path in `TODO_VAULT_PATH`. Read `Home.md` first.
+- **Use the `todo` MCP tools** when they are available: `find_tasks`, `get_task`, `add_task`, `update_task`, `complete_task`, `reopen_task`, `list_projects`, `add_project`. They go through the server, so revisions, recovery versions and date queries stay consistent.
+- **Without them**, write through a signed-in Todo browser tab using [the API workflow](references/api.md). If neither is available, report the missing connection and direct the owner to **Settings → Agent access**.
+- Never write the database, locks or private state directly, never start a second server, and never read or print tokens, passwords or cookies.
 
 ## Find the task
 
 - When you don't already have the task's id, search with `find_tasks` across all projects, using the distinctive words from the owner's request. Search `status: "all"` before adding, to avoid duplicates.
 - If more than one task plausibly fits what the owner asked (not merely shares a word), show the candidates and ask before writing.
-- For one day's work, read `Days/YYYY-MM-DD.md`; for everything open, use `find_tasks` with an empty query.
+- For one calendar day, use `find_tasks` with `day: "YYYY-MM-DD"` and the requested status. Open tasks use plan date, falling back to deadline. Done tasks use their completion date in the workspace timezone. The Today screen also surfaces overdue work. Read results through the running server.
 
 ## Choose the project for a new task
 

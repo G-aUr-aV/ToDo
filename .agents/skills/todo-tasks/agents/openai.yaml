@@ -1,4 +1,4 @@
 interface:
   display_name: "Todo Tasks"
-  short_description: "Manage personal tasks in the live Todo Vault"
+  short_description: "Manage personal tasks in the live Todo workspace"
   default_prompt: "Use $todo-tasks to review my pending tasks and carry out the requested changes."

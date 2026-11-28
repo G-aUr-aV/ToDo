@@ -7,7 +7,7 @@ Use Node 24.18 or newer within the Node 24 line. On macOS/Linux, `scripts/local-
 | Path | Responsibility |
 | --- | --- |
 | `app/src/` | Todo React interface |
-| `app/core/` | Markdown model, vault operations, dates, rollover and recurrence |
+| `app/core/` | SQLite workspace, legacy vault reader, dates, rollover and recurrence |
 | `app/server/` | Fastify API, owner authentication and storage setup |
 | `app/public/` | Website artwork, favicon and licensed fonts |
 | `app/scripts/` | Setup, development, build, startup and deployment checks |
@@ -29,7 +29,7 @@ Never use the owner's vault or private state for task-writing tests. Keep one se
 npm run check
 ```
 
-`check` runs TypeScript, core/API/setup/UI-logic tests, the production build and a real HTTP startup smoke. The smoke exercises authentication, Markdown persistence, recurrence/checklists, live event shutdown and restart behavior against invented temporary data. It needs loopback access.
+`check` runs TypeScript, core/API/setup/UI-logic tests, the production build and a real HTTP startup smoke. The smoke exercises authentication, SQLite persistence, recurrence/checklists, live event shutdown and restart behavior against invented temporary data. It needs loopback access.
 
 To include dependency installation from a clean temporary checkout:
 
@@ -41,7 +41,7 @@ CI runs `check` and builds the Docker image. For isolated Docker image and Compo
 
 ## Browser acceptance
 
-Use an invented vault to check Todo: capture, schedule, completion/Undo, external Obsidian edits, retained drafts after a stale save, reminders, recurrence, sign-out/reconnect, narrow layouts and keyboard navigation. Test the website and Obsidian handoff on the destination device. Native screen readers, notification permissions, long sessions and deployment-specific backup/restore need direct acceptance.
+Use an invented vault to check Todo: capture, schedule, completion/Undo, concurrent edits from two tabs, retained drafts after a stale save, reminders, recurrence, sign-out/reconnect, narrow layouts and keyboard navigation. Test the mobile keyboard and inline editor on the destination device. Native screen readers, notification permissions, long sessions and deployment-specific backup/restore need direct acceptance.
 
 ## Optional Sites packaging
 

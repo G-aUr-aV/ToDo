@@ -1,4 +1,4 @@
-import { useId, useRef, useState, type ReactNode } from "react";
+import { memo, useId, useRef, useState, type ReactNode } from "react";
 import type { Project, Snapshot, Task } from "../core/model";
 import { checkItems } from "../core/checklist";
 import { titleParts } from "./rich-title-parts";
@@ -76,11 +76,11 @@ export function CheckButton({
   );
 }
 
-/** Small faint markers after a title: notes, checklist, deadline, labels… */
-function Markers({ task, today, showNotes }: { task: Task; today: string; showNotes: boolean }) {
-  const items = checkItems(task.notes);
+const Markers = memo(function Markers({ notes, showNotes }: { notes: string; showNotes: boolean }) {
+  if (!notes.trim()) return null;
+  const items = notes.includes("[") ? checkItems(notes) : [];
+  if (!items.length && !showNotes) return null;
   const done = items.filter((i) => i.checked).length;
-  const late = !!task.due && task.due < today && task.status !== "done";
   return (
     <span className="markers">
       {items.length > 0 ? (
@@ -89,34 +89,14 @@ function Markers({ task, today, showNotes }: { task: Task; today: string; showNo
           {done}/{items.length}
         </span>
       ) : (
-        showNotes && task.notes.trim() && (
-          <span title="Has notes">
-            <Icon name="note" size={13} />
-          </span>
-        )
-      )}
-      {task.due && (
-        <span className={late ? "late" : ""} title="Deadline">
-          <Icon name="flag" size={13} />
-          {dateLabel(task.due, today)}
-        </span>
-      )}
-      {task.tags.map((t) => (
-        <span key={t}>#{t}</span>
-      ))}
-      {task.reminder && (
-        <span title="Reminder">
-          <Icon name="bell" size={13} />
-        </span>
-      )}
-      {task.repeat && (
-        <span title={"Repeats " + task.repeat.frequency}>
-          <Icon name="repeat" size={13} />
+        <span title="Has notes">
+          <Icon name="note" size={13} />
+          <span className="row-note-label">Notes</span>
         </span>
       )}
     </span>
   );
-}
+});
 
 /** The first line of the Outcome section, else the first line of the notes. */
 export function outcomeLine(notes: string) {
@@ -132,7 +112,10 @@ export function TaskRow({
   task,
   snapshot,
   open,
+  pending,
   leaving,
+  failure,
+  selection,
   fresh,
   showProject,
   outcome,
@@ -146,7 +129,10 @@ export function TaskRow({
   task: Task;
   snapshot: Snapshot;
   open: boolean;
+  pending?: boolean;
   leaving?: boolean;
+  failure?: { message: string; retry: () => void };
+  selection?: { selected: boolean; toggle: () => void };
   fresh?: boolean;
   showProject?: boolean;
   outcome?: boolean;
@@ -162,8 +148,17 @@ export function TaskRow({
 }) {
   const done = task.status === "done";
   const check = (onClick: () => void) => (
-    <CheckButton
-      checked={done || !!leaving}
+    selection ? (
+      <input
+        className="row-select"
+        type="checkbox"
+        aria-label={`Select ${task.title}`}
+        checked={selection.selected}
+        onClick={(e) => e.stopPropagation()}
+        onChange={selection.toggle}
+      />
+    ) : <CheckButton
+      checked={pending || leaving ? !done : done}
       label={(done ? "Reopen " : "Complete ") + task.title}
       onClick={onClick}
     />
@@ -186,6 +181,7 @@ export function TaskRow({
         type="button"
         className="icon-button"
         aria-label={"More actions for " + task.title}
+        aria-haspopup="menu"
         onClick={(e) => {
           e.stopPropagation();
           onMenu(e.currentTarget);
@@ -199,6 +195,7 @@ export function TaskRow({
     ? snapshot.projects.find((p) => p.id === task.projectId)
     : undefined;
   const preview = outcome && !open ? outcomeLine(task.notes) : "";
+  const late = !done && !!task.due && task.due < snapshot.today;
   return (
     <div
       className={
@@ -215,39 +212,64 @@ export function TaskRow({
         ) : (
           <div
             className={"task-row" + (done ? " done" : "") + (focused ? " focused" : "")}
-            tabIndex={0}
+            tabIndex={-1}
             aria-label={task.title}
-            onClick={onOpen}
+            onClick={selection ? selection.toggle : onOpen}
             onKeyDown={(e) => {
               if (["Enter", " "].includes(e.key) && e.target === e.currentTarget) {
                 e.preventDefault();
-                onOpen();
+                (selection ? selection.toggle : onOpen)();
               }
             }}
           >
             {check(onCheck)}
             <div className="row-main">
+              {!selection && (
+                <button
+                  type="button"
+                  className="row-open"
+                  aria-label={`Open ${task.title}`}
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    onOpen();
+                  }}
+                />
+              )}
               <span className="row-title">
                 <RichTitle
                   text={task.title}
                   template={snapshot.preferences.issueLinkTemplate}
                 />
-                <Markers task={task} today={snapshot.today} showNotes={!preview} />
               </span>
               {preview && <span className="row-outcome">{preview}</span>}
+              <div className="row-detail">
+                {project && (
+                  <span className="row-project" title={project.title}>
+                    <span className="swatch" style={{ background: projectColor(project.id) }} />
+                    <span>{project.title}</span>
+                  </span>
+                )}
+                <Markers notes={task.notes} showNotes={!preview} />
+              </div>
             </div>
-            {project && (
-              <span className="row-meta">
-                <span className="row-project" title={project.title}>
-                  <span className="swatch" style={{ background: projectColor(project.id) }} />
-                  <span>{project.title}</span>
-                </span>
-              </span>
-            )}
+            <span className={late ? "row-deadline late" : "row-deadline"}>
+              {task.due && (
+                <time dateTime={task.due}>
+                  {late ? "Overdue · " : "Due "}
+                  {task.due === snapshot.today ? "today" : dateLabel(task.due, snapshot.today)}
+                </time>
+              )}
+            </span>
             {actions}
           </div>
         )}
       </div>
+      {failure && (
+        <div className="row-failure" role="alert">
+          <span>{failure.message}</span>
+          <button type="button" onClick={failure.retry}>Retry</button>
+        </div>
+      )}
     </div>
   );
 }
@@ -256,6 +278,7 @@ export function TaskRow({
 export function QuickAdd({
   snapshot,
   projectId,
+  defaultScheduled = null,
   onCreated,
   onProjectCreated,
   onError,
@@ -263,6 +286,7 @@ export function QuickAdd({
 }: {
   snapshot: Snapshot;
   projectId: string | null;
+  defaultScheduled?: string | null;
   onCreated: (task: Task) => void;
   onProjectCreated: (project: Project) => void;
   onError: (message: string) => void;
@@ -271,7 +295,11 @@ export function QuickAdd({
   const [title, setTitle] = useState("");
   const [notes, setNotes] = useState("");
   const [project, setProject] = useState<string | null>(projectId);
-  const [scheduled, setScheduled] = useState<string | null>(null);
+  const [dateOverride, setDateOverride] = useState<{
+    context: string | null;
+    date: string | null;
+  }>();
+  const scheduled = dateOverride?.context === defaultScheduled ? dateOverride.date : defaultScheduled;
   const [menu, setMenu] = useState<{ kind: "project" | "date"; anchor: HTMLElement } | null>(null);
   const [busy, setBusy] = useState(false);
   const request = useRef(crypto.randomUUID());
@@ -296,7 +324,7 @@ export function QuickAdd({
       request.current = crypto.randomUUID();
       setTitle("");
       setNotes("");
-      setScheduled(null);
+      setDateOverride(undefined);
       onCreated(task);
     } catch (e) {
       onError(errorMessage(e));
@@ -305,7 +333,7 @@ export function QuickAdd({
       inputRef.current?.focus();
     }
   }
-  const active = project !== projectId || !!(title || notes || scheduled || menu);
+  const active = project !== projectId || !!(title || notes || dateOverride || menu);
   return (
     <form
       className={"quick-add" + (active ? " active" : "")}
@@ -374,11 +402,11 @@ export function QuickAdd({
           onClick={(e) => setMenu({ kind: "date", anchor: e.currentTarget })}
         >
           <Icon name="calendar-week" size={14} />
-          {scheduled ? dateLabel(scheduled, snapshot.today) : "No date"}
+          {scheduled ? dateLabel(scheduled, snapshot.today) : "Unscheduled"}
         </button>
       </span>
       <Button className="quick-submit" type="submit" disabled={!title.trim() || busy}>
-        {busy ? "Adding…" : "Add task"}
+        {busy ? "Adding…" : "Add"}
       </Button>
       {menu?.kind === "project" && (
         <Popover anchor={menu.anchor} onClose={() => setMenu(null)} label="Project" width={240}>
@@ -427,7 +455,7 @@ export function QuickAdd({
             today={snapshot.today}
             weekStartsOn={snapshot.preferences.weekStartsOn}
             onPick={(value) => {
-              setScheduled(value);
+              setDateOverride({ context: defaultScheduled, date: value });
               setMenu(null);
               inputRef.current?.focus();
             }}

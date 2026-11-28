@@ -1,6 +1,6 @@
-# Vault format
+# Legacy vault format
 
-Tasks and projects are ordinary Obsidian Markdown notes. Notes are authoritative; the server rebuilds its in-memory index from them. The [architecture guide](architecture.md) explains writing, revision checks and recovery.
+This document describes the previous file-backed release and the input to the one-time SQLite migration. The descriptions below apply to that release. For current storage and recovery, see the [architecture guide](architecture.md) and [migration guide](setup.md#upgrade-a-markdown-vault).
 
 ## Vault layout
 

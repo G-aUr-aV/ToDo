@@ -1,74 +1,46 @@
-# Self-hosted Docker runbook
+# Running Todo with Docker
 
-Run one Todo server with bind-mounted vault and private-state folders. The isolated image smoke checks authentication, Markdown writes, host-side edits, rollover, reminders/recurrence metadata, recovery and recreation using temporary data.
+Compose runs one non-root Node server with a local persistent state volume. The default loopback address is `http://localhost:4310`. Browser tabs and authorized agents connect to this server. The SQLite database, recovery history and private account state survive container replacement.
 
-## Start locally
+## Fresh installation
 
-On Linux/macOS, from the repository root:
+From the checkout, run `./start-docker.sh` on Linux or macOS. The helper preserves existing environment settings. For manual setup, create the host state and legacy-source directories from `.env.example`, configure the container UID/GID for your host, and run `docker compose up -d --build`. For private state on Unix use permissions 0700. The generated first login is in the host state directory, in `initial-login.txt`.
 
-```sh
-./start-docker.sh
-```
+The state directory must be writable. The ordinary server only reads the legacy vault location to detect installations that still require migration. Use local storage for SQLite. The container has a read-only root, temporary `/tmp`, dropped capabilities and a loopback-bound port.
 
-The helper creates absent `.env` with the current host UID/GID, prepares vault/state mounts and runs `docker compose up -d --build`. Existing configuration and data are retained. Docker and Docker Compose are the only required runtimes; Node is not needed on the host.
+## Upgrading a Markdown installation
 
-Manual setup (including Windows PowerShell): create a `Todo Vault` folder and `.todo-state/server` folder, copy `.env.example` to `.env`, set `TODO_UID` and `TODO_GID` if needed, then run:
+Keep the current app image and settings for rollback. Stop the old writer, close any external editor that might save notes, and build the new image before starting it. The following paths use Compose's default legacy mount (`/vault`) and state mount (`/state`). Replace the example absolute host paths with your configured bind sources. Create a new private host backup parent outside both source folders, writable by the configured container user.
 
 ```sh
-docker compose up -d --build
+docker compose stop todo
+docker compose build todo
+docker compose run --rm --no-deps todo node dist/server/storage-cli.cjs import --vault /vault --state /state --dry-run
+docker compose run --rm --no-deps -v "/absolute/legacy/vault:/vault:rw" -v "/absolute/backups:/backups" todo node dist/server/storage-cli.cjs import --vault /vault --state /state --backup /backups/before-upgrade
+docker compose up -d todo
 docker compose ps
 ```
 
-On Unix hosts protect the state folder with `chmod 700 .todo-state/server`. Both bind-mounted folders must exist; an empty vault mount receives the same Obsidian scaffold as a fresh source install. Do not recursively change ownership of an existing vault without checking its current owner.
+The import takes a temporary writer lock in the old vault. Use the same in-container path the previous release used so the browser recognizes existing drafts. Keep the migration archive. The [recovery guide](setup.md#back-up-and-restore) covers verification and rollback after the new database accepts writes.
 
-Open http://localhost:4310. Read the generated owner login locally at `.todo-state/server/initial-login.txt`; its permissions are 0600. Change it in Settings → Vault & connection. No credentials are in the image, Compose file or source. `TODO_PORT` changes the localhost port; the default public origin follows it unless `TODO_PUBLIC_ORIGIN` is explicitly set.
+## Operation and backup
 
-The container runs as the configured unprivileged user with a read-only root filesystem, temporary `/tmp`, dropped capabilities and no new privileges. The host port is bound to 127.0.0.1. The Dockerfile pins the official Node 24 Debian slim manifest digest and excludes private files from build context.
-
-## Normal operations
+`docker compose logs --tail=50 todo` shows startup information. `/healthz` reports liveness and `/readyz` reports workspace readiness. Browser sessions survive restart. Settings provides a database download. For the full database and account state, stop the server and run the packaged CLI with a private backup bind mount.
 
 ```sh
-docker compose logs --tail=50 todo
-docker compose stop
-docker compose start
-docker compose up -d --build
+docker compose stop todo
+docker compose run --rm --no-deps -v "/absolute/backups:/backups" todo node dist/server/storage-cli.cjs backup --state /state --backup /backups/todo-current
+docker compose start todo
 ```
 
-Stopping or recreating the container retains the bind-mounted vault and state. Keep those directories. `/healthz` reports process liveness; `/readyz` checks the vault and write capability. Docker's healthcheck probes readiness every 30 seconds; readiness rechecks task/state write access. Event connections close before shutdown so an open browser cannot hold a normal stop indefinitely.
-
-Only one Todo server engine opens a vault for writing. Browser tabs connect to that server. The fixed hidden `.todo-writer.lock` directory coordinates ownership even when the same folder has different container/host paths. A crashed lease becomes stale after 30 seconds; never remove a live writer's lock.
-
-## Backups and recovery
-
-Back up the entire vault and state directory. Close Obsidian and stop the server for a quiescent copy. State includes preferences, owner authentication configuration and `versions/<task-id>/` recovery copies. Protect backups as private data.
-
-The app keeps all recovery copies and lists the newest 100 per task. A reviewed restore also saves the note it replaces. Trash is reversible. Exports contain indexed task/project notes, not attachments, Obsidian configuration, credentials or a complete vault backup.
-
-Ordinary Obsidian changes are detected through filesystem watching and periodic reconciliation. Test your real storage: network shares and Docker Desktop mounts differ. Revision checks cannot eliminate every simultaneous external-save race.
-
-## Access from another device
-
-The included setup remains local. For deliberate remote hosting, choose a hostname, add HTTPS through your reverse proxy and set `TODO_PUBLIC_ORIGIN=https://your-hostname`. Preserve that Host header and proxy event streams. Route the app at the origin root, including `/api`. Expose only the proxy intentionally; do not replace the loopback binding casually.
-
-The server uses one owner/workspace, HttpOnly SameSite cookies, secure cookies under HTTPS, CSRF/Origin/Host checks and login throttling. Session memory is cleared by a restart. Use HTTPS when opening this server from another device.
-
-Docker does not synchronize another device's Obsidian files. A phone can use the responsive website; opening the same notes in phone Obsidian needs a separate vault-sync arrangement.
-
-## Reproduce the isolated verification
+To rehearse recovery, use a fresh target directory. Supply a read-only backup mount and a writable parent mount that can contain the restored directory.
 
 ```sh
-docker build -t todo-daylight:0.1.0 .
-cd app
-node scripts/docker-smoke.mjs
+docker compose run --rm --no-deps -v "/absolute/backups:/backups:ro" -v "/absolute/rehearsals:/restore" todo node dist/server/storage-cli.cjs restore --backup /backups/todo-current --state /restore/test-state
 ```
 
-The script creates a temporary vault, uses loopback port 4312, writes only invented tasks, recreates its own named container and cleans up that container. It keeps fixture credentials out of logs, removes its temporary vault/state at the end and prints the check results to standard output. It never uses the owner's Todo Vault.
+For remote access, configure HTTPS through a reverse proxy, preserve the Host header, proxy events, and set `TODO_PUBLIC_ORIGIN` to the exact external origin. The browser and API share the origin root.
 
-The helper itself can be tested from the repository root with `node app/scripts/compose-smoke.mjs`. It copies a clean fixture checkout, uses its own Compose project on port 4314, verifies repeat-run preservation, then removes that project and temporary data. It prints results to standard output. `TODO_COMPOSE_SMOKE_PORT` overrides the fixture port.
+## Isolated verification
 
-## Sources
-
-- [Docker bind mounts](https://docs.docker.com/engine/storage/bind-mounts/)
-- [Compose services](https://docs.docker.com/reference/compose-file/services/)
-- [Official Node images](https://github.com/nodejs/docker-node)
-- [Implementation decisions](architecture.md)
+Build a separately tagged image and point the Docker smoke test at that tag with `TODO_SMOKE_IMAGE`. `node app/scripts/docker-smoke.mjs` uses invented data and its own container. `node app/scripts/compose-smoke.mjs` tests the helper with a temporary checkout and Compose project.

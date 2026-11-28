@@ -14,6 +14,18 @@ export function inNow(task: Task, today: string) {
 export function isLater(task: Task, today: string) {
   return active(task) && !inNow(task, today);
 }
+export function inToday(task: Task, today: string) {
+  return active(task) && (
+    (task.scheduled !== null && task.scheduled <= today) ||
+    (task.due !== null && task.due <= today)
+  );
+}
+export function inUpcoming(task: Task, today: string) {
+  return active(task) && task.scheduled !== null && task.scheduled > today;
+}
+export function isUnscheduled(task: Task) {
+  return active(task) && task.scheduled === null;
+}
 export function byPriority(a: Task, b: Task) {
   return (
     (a.due ?? "9999").localeCompare(b.due ?? "9999") ||

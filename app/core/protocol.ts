@@ -6,6 +6,7 @@ export const routeFor: Record<
   snapshot: { method: "GET", path: "/api/workspace" },
   createTask: { method: "POST", path: "/api/tasks" },
   updateTask: { method: "PATCH", path: "/api/tasks/:id" },
+  bulkSchedule: { method: "POST", path: "/api/tasks/bulk-schedule" },
   createProject: { method: "POST", path: "/api/projects" },
   updateProject: { method: "PATCH", path: "/api/projects/:id" },
   setPreferences: { method: "POST", path: "/api/preferences" },

@@ -6,7 +6,7 @@ Read this from a cloned Todo repository when asked to enable its skills on a mac
 
 | Skill source | Purpose |
 | --- | --- |
-| `.agents/skills/todo-tasks/` | Read, add, plan, update, complete and carry out personal tasks using the live Todo Vault |
+| `.agents/skills/todo-tasks/` | Read, add, plan, update, complete and carry out personal tasks using the live Todo workspace |
 | `.agents/skills/todo-setup/` | Set up or repair the Todo web server |
 
 Each folder contains a standard `SKILL.md`; keep its accompanying references and assets together. `agents/openai.yaml` is optional Codex UI metadata; other agents can use the Markdown without it. Repository `AGENTS.md` points to both skills, and `CLAUDE.md` imports those shared instructions for Claude Code. An agent without skill discovery can read the relevant `SKILL.md` directly.
@@ -16,9 +16,9 @@ Cloning supplies the sources, not another machine's global instructions, vault, 
 ## 1. Resolve this machine's installation
 
 1. Find the actual checkout root containing this file, `app/package.json` and `app/scripts/start.mjs`. Resolve symlinks and use its absolute path. Do not copy a path from the original maintainer's computer.
-2. Identify the intended vault and existing server. Prefer the owner's explicit destination and the running service's actual configuration. Read only the necessary non-secret settings. For Node, `VAULT_PATH` is relative to `app/` unless absolute, and the default resolves to `<checkout>/Todo Vault`. For Compose, the host bind source uses `TODO_VAULT_PATH`, relative to the checkout unless absolute; the container's `/vault` is not the host path. See [setup](setup.md) and [Docker](docker.md).
-3. Confirm the vault with `Home.md` and `Tasks/`. Record the confirmed vault path and server origin. Preserve `.env`, private state and the running service. If setup is fresh or the vault is missing, use `todo-setup` within the requested scope; do not silently make a second vault/server while installing skills.
-4. Identify the active agent profile/home and its documented skill locations. Custom profiles can differ from the defaults below. The machine running the agent may also differ from the server host: a remote client can use the authenticated UI/API, but cannot read the server's local vault path. State that limitation rather than inventing a local copy.
+2. Identify the intended server and configured origin. For Node, the SQLite workspace lives in the private state directory. For Compose, `TODO_STATE_PATH` controls the host bind source. Legacy vault paths are used for migration. [Setup](setup.md) · [Docker](docker.md)
+3. Confirm the workspace through a read-only MCP call or an authenticated browser session. Preserve the configured origin, private state and running service. Use the setup skill for a fresh installation.
+4. Identify the active agent profile and its supported skill locations. Remote clients read tasks through the same server.
 
 ## 2. Make the skills discoverable
 
@@ -63,13 +63,13 @@ Agents read and write tasks through Todo's MCP endpoint, `<server origin>/mcp`, 
 
 Skill discovery and global task routing serve different purposes. Install the skill, then add a short rule to the effective user-instruction file from the table. Back up the file first. Preserve existing sections, imports, persona and managed blocks; update an existing Todo routing section rather than appending duplicates. Keep this machine's paths in the user file, not in tracked repository documents.
 
-Replace **every** uppercase placeholder below with confirmed values. `TASK_SKILL_FILE` and `SETUP_SKILL_FILE` are absolute paths to the installed or source `SKILL.md` files. `VAULT_LOCATION` is the accessible local vault path, or an explicit statement that the vault is on the remote server and unavailable as local files. Omit `SERVER_ORIGIN` if it is not known yet and state that connection setup is needed.
+Replace **every** uppercase placeholder below with confirmed values. `TASK_SKILL_FILE` and `SETUP_SKILL_FILE` are absolute paths to the installed or source `SKILL.md` files. Omit `SERVER_ORIGIN` if it is not known yet and state that connection setup is needed.
 
 ```markdown
-## Personal tasks: Todo Vault
+## Personal tasks in Todo
 
-- For my personal task requests from any project or chat (review pending work; add, plan, prioritize, schedule, update, complete or carry out tasks), read and follow the Todo Tasks skill at TASK_SKILL_FILE. Use this installation's live Todo Vault as the source of truth. Respect an explicitly named alternative source and distinguish personal tasks from steps in the current conversation.
-- Application checkout: APP_ROOT. Vault location: VAULT_LOCATION. Server origin: SERVER_ORIGIN. Read Home.md and relevant task/project notes when local access is available. Use the `todo` MCP tools for writes (or the signed-in UI/API when they are missing), preserve UUIDs and unmentioned content, and verify results before claiming completion. Report inaccessible data or missing authentication instead of guessing or editing task files directly.
+- For my personal task requests from any project or chat (review pending work; add, plan, prioritize, schedule, update, complete or carry out tasks), read and follow the Todo Tasks skill at TASK_SKILL_FILE. Use this installation's live Todo workspace as the source of truth. Respect an explicitly named alternative source and distinguish personal tasks from steps in the current conversation.
+- Application checkout: APP_ROOT. Server origin: SERVER_ORIGIN. Use the `todo` MCP tools for reads and writes (or the signed-in UI/API when they are missing), preserve UUIDs and unmentioned content, and verify results before claiming completion. Report inaccessible data or missing authentication instead of guessing or editing task files directly.
 - For Todo server setup or repair, read SETUP_SKILL_FILE. Reuse the existing vault/server and detect the destination OS and CPU.
 ```
 
@@ -82,7 +82,7 @@ Start a fresh session for the chosen agent, with its usual profile, **outside th
 1. Confirm each installed skill resolves to the intended `SKILL.md` and supporting files. Use the agent's skill list/selector where available. In Codex select `$todo-tasks`; in Claude Code or Hermes try `/todo-tasks`. Read-only discovery checks are enough; do not create a test task in the real vault.
 2. Ask: “Which task source and skill would you use if I ask to add a personal task? Do not add one.” It should identify the configured Todo installation and the task skill without relying on project-local instructions.
 3. Ask: “Which skill would you use to set up the Todo web server?” It should select `todo-setup`. Ordinary app-development requests should not be routed to the personal task list.
-4. Verify read access with `Home.md`/a requested listing, or a read-only `todo` MCP call such as `list_projects`, within the owner's authorization. Missing sign-in or remote filesystem access can block operations even when discovery and routing work. Test actual write mechanics only on invented temporary vaults.
+4. Verify read access with a read-only `todo` MCP call such as `list_projects`, or an authenticated workspace listing, within the owner's authorization. Missing sign-in or remote filesystem access can block operations even when discovery and routing work. Test actual write mechanics only on invented temporary vaults.
 
 Report the agent/profile, installed skill paths, global routing file, confirmed vault/origin, checks run and any remaining access limitation. Distinguish source review, skill discovery, routing checks and actual task operations. Another agent's successful setup does not prove this one's behavior.
 

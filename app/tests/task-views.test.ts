@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { inNow, isLater, byPriority } from "../core/task-views";
+import { inNow, isLater, inToday, inUpcoming, isUnscheduled, byPriority } from "../core/task-views";
 import type { Task } from "../core/model";
 const today = "2026-11-21";
 const task = (patch: Partial<Task>): Task =>
@@ -48,4 +48,30 @@ test("ordering puts deadlines first, then oldest", () => {
     [newer, older, due].sort(byPriority).map((t) => t.id),
     ["d", "o", "n"],
   );
+});
+
+test("Today includes past plans and urgent deadlines while undated work remains discoverable", () => {
+  const scheduled = task({ scheduled: today });
+  const past = task({ scheduled: "2026-11-20" });
+  const unplanned = task({ due: "2026-11-28" });
+  const overdue = task({ scheduled: "2026-11-25", due: "2026-11-20" });
+  const dueToday = task({ due: today });
+  assert.equal(inToday(scheduled, today), true);
+  assert.equal(inToday(past, today), true);
+  assert.equal(inToday(unplanned, today), false);
+  assert.equal(inToday(overdue, today), true);
+  assert.equal(inToday(dueToday, today), true);
+  assert.equal(inUpcoming(overdue, today), true);
+  assert.equal(inUpcoming(dueToday, today), false);
+  assert.equal(isUnscheduled(unplanned), true);
+  assert.equal(isUnscheduled(dueToday), true);
+  assert.equal(isUnscheduled(scheduled), false);
+});
+
+test("planner views exclude done and trashed tasks even when the date matches", () => {
+  for (const state of [{ status: "done" as const }, { trashed: true }]) {
+    assert.equal(inToday(task({ ...state, scheduled: today }), today), false);
+    assert.equal(inUpcoming(task({ ...state, scheduled: "2026-11-24" }), today), false);
+    assert.equal(isUnscheduled(task(state)), false);
+  }
 });

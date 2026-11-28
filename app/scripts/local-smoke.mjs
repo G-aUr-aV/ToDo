@@ -1,4 +1,4 @@
-// Exercises the real packaged launcher, HTTP API and restart in a disposable vault.
+// Exercises the packaged launcher, HTTP API and restart in a disposable workspace.
 import assert from "node:assert/strict";
 import fs from "node:fs/promises";
 import os from "node:os";
@@ -24,7 +24,7 @@ if (cleanInstall) {
   });
   launcher = path.join(copy, "scripts", "start.mjs");
 }
-const root = path.join(directory, "Fresh Vault");
+const root = path.join(directory, "Absent Legacy Vault");
 const state = path.join(directory, "private");
 const listener = net.createServer();
 await new Promise((resolve, reject) => {
@@ -86,8 +86,8 @@ try {
     assert.match(output, /Installing Todo's locked dependencies/);
     assert.match(output, /Building Todo/);
   }
-  assert.ok((await fs.stat(path.join(root, "Home.md"))).isFile());
-  assert.ok((await fs.stat(path.join(root, "Days/README.md"))).isFile());
+  await assert.rejects(fs.access(root), { code: "ENOENT" });
+  assert.equal((await fs.stat(path.join(state, "todo.sqlite"))).mode & 0o777, 0o600);
   assert.equal((await fs.stat(path.join(state, "owner.json"))).mode & 0o777, 0o600);
   assert.equal((await request("/api/workspace")).status, 401);
   const page = await request("/");
@@ -99,26 +99,33 @@ try {
   assert.equal(events.status, 200);
   const eventReader = events.body.getReader();
   assert.match(new TextDecoder().decode((await eventReader.read()).value), /connected/);
-  const created = await request("/api/tasks", "POST", { requestId: randomUUID(), title: "Setup smoke task", notes: "- [x] Data stays in my vault\n\n```md\n- [x] Example remains checked\n```", scheduled: "2030-10-20", reminder: "2030-10-20T09:00:00+05:30", repeat: { frequency: "daily", interval: 1 } });
+  const created = await request("/api/tasks", "POST", { requestId: randomUUID(), title: "Setup smoke task", notes: "- [x] Data stays in my workspace\n\n```md\n- [x] Example remains checked\n```", scheduled: "2030-10-20", due: "2030-10-22", reminder: "2030-10-20T09:00:00+05:30", repeat: { frequency: "daily", interval: 1 } });
   assert.equal(created.status, 200);
   assert.match(new TextDecoder().decode((await eventReader.read()).value), /event: changed/);
   const task = await created.json();
-  const plannedList = path.join(root, "Days/2030-10-20.md");
-  assert.ok((await fs.readFile(plannedList, "utf8")).includes(`- [Setup smoke task](../${task.path})`));
-  assert.match(await fs.readFile(path.join(root, task.path), "utf8"), /Data stays in my vault/);
-  const completed = await request(`/api/tasks/${task.id}`, "PATCH", { status: "done" }, task.revision);
+  const scheduled = await request("/api/tasks/bulk-schedule", "POST", {
+    scheduled: "2030-10-21", tasks: [{ id: task.id, revision: task.revision }],
+  });
+  assert.equal(scheduled.status, 200);
+  const [replanned] = await scheduled.json();
+  assert.equal(replanned.scheduled, "2030-10-21");
+  assert.equal(replanned.due, task.due);
+  const completed = await request(`/api/tasks/${task.id}`, "PATCH", { status: "done" }, replanned.revision);
   assert.equal(completed.status, 200);
   assert.equal((await completed.json()).status, "done");
   const afterComplete = await (await request("/api/workspace")).json();
-  const completionList = path.join(root, "Days", afterComplete.today + ".md");
-  assert.ok((await fs.readFile(completionList, "utf8")).includes(`- ~~[Setup smoke task](../${task.path})~~`));
-  assert.ok(!(await fs.readFile(plannedList, "utf8")).includes(task.path));
+  assert.equal(afterComplete.storage, "sqlite");
+  assert.ok(afterComplete.tasks.find((t) => t.id === task.id).completedAt);
   const successors = afterComplete.tasks.filter((t) => t.recurrenceSourceId === task.id);
   assert.equal(successors.length, 1, "Packaged runtime must create one repeating successor");
-  assert.match(successors[0].notes, /- \[ \] Data stays in my vault/);
+  assert.match(successors[0].notes, /- \[ \] Data stays in my workspace/);
   assert.match(successors[0].notes, /- \[x\] Example remains checked/);
   assert.equal(Date.parse(successors[0].reminder) - Date.parse(task.reminder), 86_400_000);
-  assert.match(await fs.readFile(path.join(root, task.path), "utf8"), /- \[x\] Data stays in my vault/);
+  assert.match(afterComplete.tasks.find((t) => t.id === task.id).notes, /- \[x\] Data stays in my workspace/);
+  const backup = await request("/api/backup");
+  assert.equal(backup.status, 200);
+  assert.match(backup.headers.get("content-disposition"), /attachment/);
+  assert.equal(Buffer.from(await backup.arrayBuffer()).subarray(0, 16).toString(), "SQLite format 3\0");
   // Keep the live event connection open: normal browser use must not block shutdown.
   await stop();
   while (!(await eventReader.read()).done) {}
@@ -126,11 +133,11 @@ try {
   assert.equal((await request("/api/workspace")).status, 200, "Sign-in must survive a restart");
   const snapshot = await (await request("/api/workspace")).json();
   assert.equal(snapshot.tasks.find((t) => t.id === task.id)?.status, "done");
-  assert.ok((await fs.readFile(completionList, "utf8")).includes(`- ~~[Setup smoke task](../${task.path})~~`));
+  assert.equal(snapshot.vaultKey, afterComplete.vaultKey);
   const versions = await (await request(`/api/tasks/${task.id}/versions`)).json();
   assert.ok(versions.length > 0);
-  assert.ok(!output.includes("Created your task vault"), "Restart must preserve the existing vault");
-  console.log(`${cleanInstall ? "Clean-install and local" : "Local"} setup smoke passed: fresh vault, private login, HTTP writes, Markdown ownership, linked day lists, restart persistence, recovery, repeating checklist reset, live events, clean shutdown and sign-in that survives a restart.`);
+  await assert.rejects(fs.access(root), { code: "ENOENT" });
+  console.log(`${cleanInstall ? "Clean-install and local" : "Local"} setup smoke passed: fresh SQLite workspace, private login, bulk planning, database backup, recovery, recurrence, live events and restart persistence.`);
 } finally {
   await stop().catch(() => { child?.kill("SIGKILL"); });
   await fs.rm(directory, { recursive: true, force: true });

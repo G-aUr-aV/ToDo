@@ -11,5 +11,7 @@ dist/
 coverage/
 app/out/
 app/.todo-state/
+*.sqlite
+*.sqlite-*
 *.log
 /.tools/

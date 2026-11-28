@@ -3,7 +3,6 @@ import type { Snapshot, Task } from "../core/model";
 import { dayInZone } from "../core/dates";
 import { Button, Empty, Icon } from "./components";
 import { dateLabel, shiftDate } from "./DateControl";
-import { outcomeLine } from "./TaskList";
 
 const doneBatchSize = 30;
 
@@ -12,56 +11,6 @@ function completedTasks(tasks: Task[], projectId: string | null) {
     .filter((task) => !task.trashed && task.status === "done" && (!projectId || task.projectId === projectId))
     .map((task) => ({ task, time: task.completedAt ? Date.parse(task.completedAt) : -Infinity }))
     .sort((a, b) => b.time - a.time);
-}
-
-export function RecentCompletions({
-  snapshot,
-  projectId,
-  onOpen,
-  onDone,
-}: {
-  snapshot: Snapshot;
-  projectId: string | null;
-  onOpen: (task: Task) => void;
-  onDone: () => void;
-}) {
-  const cutoff = shiftDate(snapshot.today, -6);
-  const recent: { task: Task; day: string }[] = [];
-  for (const { task, time } of completedTasks(snapshot.tasks, projectId)) {
-    if (!task.completedAt) break;
-    const day = dayInZone(new Date(time), snapshot.preferences.timezone);
-    if (day < cutoff) break;
-    if (day > snapshot.today) continue;
-    recent.push({ task, day });
-    if (recent.length === 3) break;
-  }
-  if (!recent.length) return null;
-
-  return (
-    <section className="task-ledger recent-completions" aria-labelledby="recent-completions-title">
-      <div className="group-title context-heading">
-        <h2 id="recent-completions-title">Recently completed</h2>
-        <button className="history-link" type="button" onClick={onDone}>
-          View Done <Icon name="arrow-right" size={14} />
-        </button>
-      </div>
-      <ul>
-        {recent.map(({ task, day }) => {
-          const outcome = outcomeLine(task.notes);
-          return (
-            <li key={task.id}>
-              <button type="button" className="recent-task" onClick={() => onOpen(task)}>
-                <Icon name="circle-check" size={16} tone="brand" />
-                <strong>{task.title}</strong>
-                <time dateTime={day}>{dateLabel(day, snapshot.today)}</time>
-                {outcome && <span className="row-outcome">{outcome}</span>}
-              </button>
-            </li>
-          );
-        })}
-      </ul>
-    </section>
-  );
 }
 
 /** Finished work grouped by the local day it was completed. */

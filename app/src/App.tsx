@@ -1,58 +1,69 @@
 import { useCallback, useEffect, useId, useRef, useState } from "react";
-import { readStored, writeStored } from "./storage";
+import { writeStored } from "./storage";
 import { appearanceKey, applyAppearance, readAppearance, type Appearance } from "./appearance";
 import type { Task, Project, Snapshot, TaskPatch, Version } from "../core/model";
-import { active, inNow, isLater, byPriority } from "../core/task-views";
+import { active, inToday, inUpcoming, isUnscheduled, byPriority } from "../core/task-views";
 import type { SessionInfo } from "../core/protocol";
 import { call, subscribe, ClientError } from "./client";
 import { Banner, Button, Empty, Field, Icon, Modal, modifierKey, copyText, errorMessage } from "./components";
 import { TaskEditor, form, type CardActions } from "./Editor";
-import { Settings, ImportPage } from "./Settings";
+import { Settings } from "./Settings";
 import { TrashView } from "./TrashView";
-import { dateLabel } from "./DateControl";
+import { shiftDate } from "./DateControl";
 import { Reminders } from "./Reminders";
 import { TaskRow, QuickAdd, NewProjectInput } from "./TaskList";
-import { DoneView, RecentCompletions } from "./DoneView";
+import { DoneView } from "./DoneView";
+import { Upcoming } from "./Upcoming";
 import { Find, KeyboardSheet } from "./Find";
 import { Popover, MenuItem } from "./Popover";
 import { projectColor } from "./project-color";
 
 type View =
+  | "today"
   | "tasks"
+  | "upcoming"
   | "done"
   | "trash"
   | "settings"
   | "archived"
-  | "diagnostics"
-  | "import"
   | "history";
 const titles: Record<View, string> = {
-  tasks: "Tasks",
+  today: "Today",
+  tasks: "All tasks",
+  upcoming: "Upcoming",
   done: "Done",
   trash: "Trash",
   settings: "Settings",
   archived: "Archived projects",
-  diagnostics: "Vault status",
-  import: "Import task notes",
   history: "Earlier versions",
 };
 const reducedMotion = () =>
   document.documentElement.dataset.motion === "reduced" ||
   matchMedia("(prefers-reduced-motion: reduce)").matches;
+const taskView = (task: Task, today: string): View =>
+  task.trashed ? "trash" : task.status === "done" ? "done" : inToday(task, today) ? "today" : "tasks";
+type Undo = () => Promise<void>;
+type Settling = { task: Task; phase: "pending" | "leaving" };
 const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 export default function App() {
   const [session, setSession] = useState<SessionInfo | null>(null);
   const [snapshot, setSnapshot] = useState<Snapshot | null>(null);
-  const [view, setView] = useState<View>("tasks");
+  const [view, setView] = useState<View>("today");
   const [filterProject, setFilterProject] = useState<string | null>(null);
+  const [unscheduled, setUnscheduled] = useState(false);
+  const [captureDate, setCaptureDate] = useState<string>();
   const [openId, setOpenId] = useState<string | null>(null);
   const [notesFor, setNotesFor] = useState<string | null>(null);
   const [menuFor, setMenuFor] = useState<{ id: string; kind: "project" | "date" } | null>(null);
   const cardActions = useRef<CardActions | null>(null);
   const [cursor, setCursor] = useState<string | null>(null);
   // Tasks finishing their complete/reopen animation keep their old state on screen.
-  const [ghosts, setGhosts] = useState<Map<string, Task>>(new Map());
+  const [ghosts, setGhosts] = useState<Map<string, Settling>>(new Map());
+  const settling = useRef(new Set<string>());
+  const [failed, setFailed] = useState<Map<string, string>>(new Map());
+  const [undoCompletion, setUndoCompletion] = useState<{ run: Undo } | null>(null);
+  const undoing = useRef(false);
   const [fresh, setFresh] = useState<string | null>(null);
   const [error, setError] = useState("");
   const [saving, setSaving] = useState("Saved");
@@ -80,6 +91,7 @@ export default function App() {
   const addInput = useRef<HTMLInputElement>(null);
   const workspaceScroll = useRef<HTMLDivElement>(null);
   const trashHeading = useRef<HTMLHeadingElement>(null);
+  const workspaceHeading = useRef<HTMLElement>(null);
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   useEffect(() => {
     writeStored(appearanceKey, JSON.stringify(appearance));
@@ -96,11 +108,11 @@ export default function App() {
       setError("");
       if (!initialView.current) {
         initialView.current = true;
-        setView(data.preferences.startPage === "done" ? "done" : "tasks");
+        setView(data.preferences.startPage === "done" ? "done" : "today");
         const id = new URLSearchParams(location.search).get("task");
         const task = data.tasks.find((t) => t.id === id);
         if (task) {
-          setView(task.trashed ? "trash" : task.status === "done" ? "done" : "tasks");
+          setView(taskView(task, data.today));
           if (!task.trashed) {
             setOpenId(task.id);
             setCursor(task.id);
@@ -160,6 +172,8 @@ export default function App() {
     workspaceScroll.current?.scrollTo({ top: 0 });
     setView(next);
     setFilterProject(project);
+    setUnscheduled(false);
+    setCaptureDate(undefined);
     setOpenId(null);
     setNotesFor(null);
     setMenuFor(null);
@@ -186,7 +200,12 @@ export default function App() {
     );
     void load();
   }
-  async function mutate(task: Task, patch: TaskPatch, message?: string) {
+  async function mutate(
+    task: Task,
+    patch: TaskPatch,
+    message?: string,
+    onFailure?: (message: string) => void,
+  ) {
     setSaving("Saving…");
     try {
       const result = await call<Task>("updateTask", {
@@ -196,8 +215,8 @@ export default function App() {
       });
       applyTask(result);
       setSaving("Saved");
-      if (message)
-        notice(message, async () => {
+      if (message) {
+        const undo = async () => {
           const restored = result.undoVersion
             ? await call<Task>("restore", {
                 id: result.id,
@@ -211,44 +230,66 @@ export default function App() {
               });
           applyTask(restored);
           setFresh(restored.id);
-          notice("Undone.");
+          setUndoCompletion((current) => current?.run === undo ? null : current);
+          notice("Undone");
           void load();
-        });
+        };
+        if (patch.status === "done") setUndoCompletion({ run: undo });
+        notice(message, undo);
+      }
       return result;
     } catch (e) {
       setSaving("Changes not saved");
-      if (e instanceof ClientError && e.info.code === "CONFLICT") {
-        notice("This task changed elsewhere. The list has refreshed; try again.");
-        await load();
-      } else notice(errorMessage(e));
+      const conflict = e instanceof ClientError && e.info.code === "CONFLICT";
+      const detail = conflict ? "This task changed elsewhere. Review the latest task and retry." : errorMessage(e);
+      (onFailure ?? notice)(detail);
+      if (conflict) await load();
       return null;
     }
   }
-  /** Check animation, slide out, then the saved result with Undo. */
-  async function settle(task: Task, patch: TaskPatch, message: string) {
-    if (ghosts.has(task.id)) return;
-    const row = document.querySelector(`[data-task-id="${task.id}"]`);
-    const hadFocus = row?.contains(document.activeElement);
-    const siblingRows = [...document.querySelectorAll<HTMLElement>("[data-task-id]")];
-    const index = siblingRows.findIndex((item) => item === row);
-    const nextId = (siblingRows[index + 1] ?? siblingRows[index - 1])?.dataset.taskId;
-    setGhosts((old) => new Map(old).set(task.id, task));
-    const [result] = await Promise.all([
-      mutate(task, patch, message),
-      wait(reducedMotion() ? 0 : 560),
-    ]);
-    if (result) {
-      setOpenId((id) => (id === task.id ? null : id));
-      if (hadFocus && (document.activeElement === document.body || row?.contains(document.activeElement))) {
-        setCursor(nextId ?? null);
-        if (!nextId) document.getElementById("main")?.focus({ preventScroll: true });
-      }
+  async function runUndo(undo: Undo) {
+    if (undoing.current) return;
+    undoing.current = true;
+    try {
+      await undo();
+    } catch (e) {
+      notice(errorMessage(e));
+    } finally {
+      undoing.current = false;
     }
-    setGhosts((old) => {
-      const next = new Map(old);
+  }
+  async function settle(task: Task, patch: TaskPatch, message: string) {
+    if (settling.current.has(task.id)) return;
+    settling.current.add(task.id);
+    setFailed((current) => {
+      const next = new Map(current);
       next.delete(task.id);
       return next;
     });
+    setGhosts((current) => new Map(current).set(task.id, { task, phase: "pending" }));
+    const result = await mutate(task, patch, message, (detail) =>
+      setFailed((current) => new Map(current).set(task.id, detail)),
+    );
+    if (result) {
+      setGhosts((current) => new Map(current).set(task.id, { task, phase: "leaving" }));
+      if (!reducedMotion()) await wait(155);
+      const rows = [...document.querySelectorAll<HTMLElement>(".workspace-scroll [data-task-id]")];
+      const index = rows.findIndex((row) => row.dataset.taskId === task.id);
+      const row = rows[index];
+      if (row?.contains(document.activeElement)) {
+        const candidates = [...rows.slice(index + 1), ...rows.slice(0, index).reverse()];
+        const next = candidates.find((entry) => entry.dataset.taskId && !settling.current.has(entry.dataset.taskId));
+        if (next) setCursor(next.dataset.taskId!);
+        else (addInput.current ?? workspaceHeading.current)?.focus({ preventScroll: true });
+      }
+      setOpenId((id) => id === task.id ? null : id);
+    }
+    setGhosts((current) => {
+      const next = new Map(current);
+      next.delete(task.id);
+      return next;
+    });
+    settling.current.delete(task.id);
   }
   const complete = (task: Task) => void settle(task, { status: "done" }, "Completed");
   const reopen = (task: Task) =>
@@ -257,17 +298,6 @@ export default function App() {
     copyText(task.title)
       .then(() => notice("Copied task name"))
       .catch(() => notice("Copying isn't available in this browser."));
-  }
-  function openObsidian(path: string) {
-    const vault = readStored(`todo:obsidian:${snapshot?.vaultKey}`) ?? "";
-    if (!vault) {
-      go("settings");
-      notice("Add this device's Obsidian vault name in Settings first.");
-      return;
-    }
-    window.location.assign(
-      `obsidian://open?vault=${encodeURIComponent(vault)}&file=${encodeURIComponent(path)}`,
-    );
   }
   async function signedIn(info: SessionInfo) {
     setSession(info);
@@ -285,6 +315,7 @@ export default function App() {
       setSession((s) => (s ? { ...s, authenticated: false } : s));
       setSnapshot(null);
       setOpenId(null);
+      setUndoCompletion(null);
     } catch (e) {
       notice(errorMessage(e));
     }
@@ -299,10 +330,14 @@ export default function App() {
     }
   }
   function openTask(task: Task, notes = false) {
-    const target: View = task.trashed ? "trash" : task.status === "done" ? "done" : "tasks";
+    const today = snapshotRef.current?.today ?? "";
     const matchingProject = !task.trashed && task.projectId === filterProject ? filterProject : null;
-    if (view !== target || (filterProject && task.projectId !== filterProject))
-      go(target, matchingProject);
+    const target = taskView(task, today);
+    const visible =
+      (view === target && view !== "tasks" && (!filterProject || !!matchingProject)) ||
+      (active(task) && view === "tasks" && (!filterProject || !!matchingProject) && (!unscheduled || isUnscheduled(task))) ||
+      (view === "upcoming" && inUpcoming(task, today));
+    if (!visible) go(target, target === "done" ? matchingProject : null);
     setOpenId(task.id);
     setCursor(task.id);
     setMenuFor(null);
@@ -371,9 +406,9 @@ export default function App() {
         case "n":
         case "N":
           e.preventDefault();
-          if (k.view === "tasks" && addInput.current) addInput.current.focus();
+          if (addInput.current) addInput.current.focus();
           else {
-            go("tasks");
+            go("today");
             requestAnimationFrame(() => addInput.current?.focus());
           }
           break;
@@ -485,48 +520,56 @@ export default function App() {
         <span className="mark large">
           <Icon name="check" size={22} />
         </span>
-        <h1>{error ? "Your vault is unavailable" : "Opening your vault…"}</h1>
+        <h1>{error ? "Your workspace is unavailable" : "Opening your workspace…"}</h1>
         <p>{error || "Reading your task notes."}</p>
         <Button onClick={() => void load()}>Retry</Button>
       </div>
     );
   const s = ghosts.size
-    ? { ...snapshot, tasks: snapshot.tasks.map((t) => ghosts.get(t.id) ?? t) }
+    ? { ...snapshot, tasks: snapshot.tasks.map((t) => ghosts.get(t.id)?.task ?? t) }
     : snapshot;
   const open = s.tasks.filter(active);
   const activeProjects = s.projects.filter((p) => !p.archived);
   const project = s.projects.find((p) => p.id === filterProject) ?? null;
   const scoped = open.filter((t) => !filterProject || t.projectId === filterProject);
-  const now = scoped.filter((t) => inNow(t, s.today)).sort(byPriority);
-  const later = scoped
-    .filter((t) => isLater(t, s.today))
-    .sort((a, b) => (a.scheduled ?? "").localeCompare(b.scheduled ?? "") || byPriority(a, b));
-  const known = new Set(s.projects.map((p) => p.id));
-  const groups = (filterProject
-    ? [{ key: "only", project, tasks: now }]
-    : [
-        ...s.projects.map((p) => ({
-          key: p.id,
-          project: p,
-          tasks: now.filter((t) => t.projectId === p.id),
-        })),
-        {
-          key: "none",
-          project: null,
-          tasks: now.filter((t) => !t.projectId || !known.has(t.projectId)),
-        },
-      ]).filter((g) => g.tasks.length);
+  const todayTasks = open.filter((task) => inToday(task, s.today)).sort(byPriority);
+  const upcoming = open.filter((task) => inUpcoming(task, s.today)).sort((a, b) =>
+    (a.scheduled ?? "").localeCompare(b.scheduled ?? "") || byPriority(a, b),
+  );
+  const taskList = view === "today" ? todayTasks : scoped
+    .filter((task) => !unscheduled || isUnscheduled(task))
+    .sort(byPriority);
+  const hasComposer = view === "today" || view === "tasks" || view === "upcoming";
+  const defaultScheduled = view === "today" ? s.today :
+    view === "upcoming" ? captureDate ?? shiftDate(s.today, 1) : null;
+  function focusComposer(date: string) {
+    setCaptureDate(date);
+    addInput.current?.focus({ preventScroll: true });
+  }
+  function openUnscheduled() {
+    go("tasks");
+    setUnscheduled(true);
+  }
 
   const row = (
     task: Task,
-    opts: { showProject?: boolean; outcome?: boolean } = {},
+    opts: { showProject?: boolean; outcome?: boolean; selection?: { selected: boolean; toggle: () => void } } = {},
   ) => (
     <TaskRow
       key={task.id}
       task={task}
       snapshot={s}
-      open={openId === task.id}
-      leaving={ghosts.has(task.id)}
+      open={!opts.selection && openId === task.id}
+      pending={ghosts.get(task.id)?.phase === "pending"}
+      leaving={ghosts.get(task.id)?.phase === "leaving"}
+      failure={failed.has(task.id) ? {
+        message: failed.get(task.id)!,
+        retry: () => {
+          if (openId === task.id && cardActions.current) cardActions.current.toggle();
+          else if (task.status === "done") reopen(task);
+          else complete(task);
+        },
+      } : undefined}
       fresh={fresh === task.id}
       focused={cursor === task.id}
       {...opts}
@@ -548,6 +591,7 @@ export default function App() {
           onState={setSaving}
           onClose={() => setOpenId(null)}
           onComplete={complete}
+          onReopen={reopen}
           onProjectCreated={addProject}
           leading={leading}
           trailing={trailing}
@@ -610,7 +654,7 @@ export default function App() {
       <aside className="sidebar" aria-label="Workspace navigation">
         <div className="wordmark">
           <span className="mark">
-            <Icon name="daylight" size={25} />
+            <Icon name="notebook" size={24} />
           </span>
           Todo
         </div>
@@ -620,7 +664,9 @@ export default function App() {
           <kbd>{modifierKey()}K</kbd>
         </button>
         <nav className="nav-group" aria-label="Task views">
-          {navButton("tasks", "My tasks", "list-check", open.length)}
+          {navButton("today", "Today", "sun", todayTasks.length)}
+          {navButton("tasks", "All tasks", "list-check")}
+          {navButton("upcoming", "Upcoming", "calendar-week")}
           {navButton("done", "Done", "circle-check")}
         </nav>
         {projectHeading}
@@ -635,42 +681,69 @@ export default function App() {
           <button className="nav-item" onClick={() => setKeysOpen(true)} title="Keyboard shortcuts (?)">
             <Icon name="keyboard" size={17} /><span>Shortcuts</span>
           </button>
-          <button className="vault-status" onClick={() => go("settings")}>
+          <button className="workspace-status" onClick={() => go("settings")}>
             <i className={error ? "offline" : saving === "Saving…" ? "saving" : ""} />
-            <span>{error ? "Connection interrupted" : saving === "Saved" ? "Saved to vault" : saving}</span>
+            <span>{error ? "Connection interrupted" : saving === "Saved" ? "All changes saved" : saving}</span>
           </button>
         </div>
       </aside>
       <main id="main" className="main" tabIndex={-1}>
-        <WorkspaceHeading>
-          {project && (view === "tasks" || view === "done") ? (
-            <ProjectHeader
-              key={project.id}
-              project={project}
-              mode={view}
-              onMode={(mode) => go(mode, project.id)}
-              onSaved={() => void load()}
-              onError={notice}
-              onMenu={(anchor) => setProjectMenu({ kind: "project", anchor })}
-            />
-          ) : (
-            <>
-              <h1 ref={view === "trash" ? trashHeading : undefined} tabIndex={view === "trash" ? -1 : undefined}>
-                {view === "tasks" ? "My tasks" : titles[view]}
-              </h1>
-              {view === "tasks" && <time dateTime={s.today}>{longDate}</time>}
-              {view === "trash" && <p>Restore removed tasks to their original list.</p>}
-            </>
-          )}
-        </WorkspaceHeading>
-        <div
-          className={`workspace-scroll${view === "settings" ? " settings-page" : ""}${view === "tasks" && !project ? " my-tasks-page" : ""}`}
-          key={workspaceKey}
-          ref={workspaceScroll}
-        >
+        <WorkspaceHeading headingRef={workspaceHeading}>
+          <div className="workspace-title">
+            {project && (view === "tasks" || view === "done") ? (
+              <ProjectHeader
+                key={project.id}
+                project={project}
+                mode={view}
+                onMode={(mode) => go(mode, project.id)}
+                onSaved={() => void load()}
+                onError={notice}
+                onMenu={(anchor) => setProjectMenu({ kind: "project", anchor })}
+              />
+            ) : (
+              <>
+                <h1 ref={view === "trash" ? trashHeading : undefined} tabIndex={view === "trash" ? -1 : undefined}>
+                  {titles[view]}
+                </h1>
+                {view === "today" && <time dateTime={s.today}>{longDate}</time>}
+              </>
+            )}
+          </div>
           {project && (view === "tasks" || view === "done") && (
             <ProjectDescription project={project} onSaved={() => void load()} onError={notice} />
           )}
+          {hasComposer && (
+            <div className="task-queue">
+              <QuickAdd
+                key={workspaceKey}
+                snapshot={s}
+                projectId={filterProject}
+                defaultScheduled={defaultScheduled}
+                inputRef={addInput}
+                onCreated={(task) => {
+                  applyTask(task);
+                  setFresh(task.id);
+                }}
+                onProjectCreated={addProject}
+                onError={notice}
+              />
+            </div>
+          )}
+          {view === "tasks" && (
+            <div className="planner-filter" role="group" aria-label="Task schedule">
+              <button type="button" aria-pressed={!unscheduled} onClick={() => setUnscheduled(false)}>All</button>
+              <button type="button" aria-pressed={unscheduled} onClick={() => setUnscheduled(true)}>Unscheduled</button>
+            </div>
+          )}
+          {(view === "today" || view === "tasks") && (
+            <p className="planner-count" aria-live="polite">{taskList.length} {taskList.length === 1 ? "task" : "tasks"}</p>
+          )}
+        </WorkspaceHeading>
+        <div
+          className={`workspace-scroll${view === "settings" ? " settings-page" : ""}`}
+          key={workspaceKey}
+          ref={workspaceScroll}
+        >
           {error && (
             <Banner title="Connection interrupted">
               <p>{error}</p>
@@ -678,13 +751,6 @@ export default function App() {
                 Retry connection
               </Button>
             </Banner>
-          )}
-          {s.diagnostics.length > 0 && view !== "diagnostics" && (
-            <button className="diagnostic-hint" onClick={() => go("diagnostics")}>
-              <Icon name="alert-triangle" tone="warning" />
-              {s.diagnostics.length} note{s.diagnostics.length === 1 ? "" : "s"} need
-              attention
-            </button>
           )}
           <Reminders
             tasks={open.filter((task) => !!task.reminder)}
@@ -696,76 +762,46 @@ export default function App() {
             }}
             onChanged={() => void load()}
           />
-          {view === "tasks" && (
-            <div className="task-workspace">
-              <div className="task-queue">
-                <div className="queue-heading"><h2>To do</h2><span className="section-count">{now.length}</span></div>
-                <QuickAdd
-                  snapshot={s}
-                  projectId={filterProject}
-                  inputRef={addInput}
-                  onCreated={(task) => {
-                    applyTask(task);
-                    setFresh(task.id);
-                  }}
-                  onProjectCreated={addProject}
-                  onError={notice}
-                />
-                {groups.length > 0 && (
-                  <div className="task-ledger open-ledger">
-                    {groups.map(({ key, project: groupProject, tasks }) => (
-                      <section className="group" key={key}>
-                        {!filterProject && (
-                          <h2 className="group-title">
-                            {groupProject ? (
-                              <button onClick={() => go("tasks", groupProject.id)}>
-                                <span className="swatch" style={{ background: projectColor(groupProject.id) }} />
-                                {groupProject.title}
-                              </button>
-                            ) : (
-                              "No project"
-                            )}
-                            <span className="count">{tasks.length}</span>
-                          </h2>
-                        )}
-                        {tasks.map((t) => row(t))}
-                      </section>
-                    ))}
-                  </div>
-                )}
-                {!scoped.length && (
-                  <Empty icon="inbox" title="No open tasks">
-                    Add a task when something comes up.
-                  </Empty>
-                )}
+          {(view === "today" || view === "tasks") && (
+            taskList.length ? (
+              <div className="task-ledger planner-ledger">
+                {taskList.map((task) => row(task, { showProject: !filterProject }))}
               </div>
-              <div className="task-context">
-                {later.length > 0 && (
-                  <section className="task-ledger later-ledger" aria-labelledby="later-title">
-                    <div className="group">
-                      <h2 className="agenda-title" id="later-title">
-                        <Icon name="calendar-week" size={19} />
-                        Upcoming <span className="section-count">{later.length}</span>
-                      </h2>
-                      {later.map((task, index) => (
-                        <div className="agenda-entry" key={task.id}>
-                          {task.scheduled && task.scheduled !== later[index - 1]?.scheduled && (
-                            <h3><time dateTime={task.scheduled}>{dateLabel(task.scheduled, s.today)}</time></h3>
-                          )}
-                          {row(task, { showProject: !filterProject })}
-                        </div>
-                      ))}
-                    </div>
-                  </section>
-                )}
-                <RecentCompletions
-                  snapshot={s}
-                  projectId={filterProject}
-                  onOpen={(task) => openTask(task)}
-                  onDone={() => go("done", filterProject)}
-                />
-              </div>
-            </div>
+            ) : view === "today" ? (
+              <Empty
+                title="Nothing planned for Today"
+                icon="sun"
+                action={<Button kind="secondary" onClick={openUnscheduled}>Choose from unscheduled</Button>}
+              >
+                Add a task or pick something to work on.
+              </Empty>
+            ) : (
+              <Empty icon="inbox" title={unscheduled ? "No unscheduled tasks" : "No open tasks"}>
+                {unscheduled ? "Tasks without a plan date appear here." : "Add a task when something comes up."}
+              </Empty>
+            )
+          )}
+          {view === "upcoming" && (
+            <Upcoming
+              tasks={upcoming}
+              snapshot={s}
+              row={(task, selection) => row(task, { showProject: true, selection })}
+              onAdd={focusComposer}
+              onMoved={(tasks) => {
+                const updated = new Map(tasks.map((task) => [task.id, task]));
+                setSnapshot((current) => current && {
+                  ...current,
+                  tasks: current.tasks.map((task) => updated.get(task.id) ?? task),
+                });
+                notice(tasks.length === 1 ? "Task moved" : `${tasks.length} tasks moved`);
+              }}
+              onRefresh={load}
+            />
+          )}
+          {view === "done" && undoCompletion && (
+            <Button className="undo-latest" kind="secondary" onClick={() => void runUndo(undoCompletion.run)}>
+              Undo last completion
+            </Button>
           )}
           {view === "done" && (
             <DoneView
@@ -798,7 +834,7 @@ export default function App() {
           {view === "archived" && (
             <>
               <p className="muted lead">
-                Archived projects keep their notes and tasks in the vault.
+                Archived projects keep their notes and tasks.
               </p>
               {s.projects
                 .filter((p) => p.archived)
@@ -832,50 +868,6 @@ export default function App() {
               )}
             </>
           )}
-          {view === "diagnostics" && (
-            <>
-              <Banner title="Vault status" kind={s.diagnostics.length ? "warning" : "success"}>
-                {s.diagnostics.length
-                  ? `${s.diagnostics.length} notes need attention. Their files are preserved.`
-                  : `${open.length} open tasks, ${s.tasks.filter((t) => t.status === "done" && !t.trashed).length} completed and ${s.tasks.filter((t) => t.trashed).length} in Trash.`}
-              </Banner>
-              {s.diagnostics.map((d) => (
-                <div className="list-row" key={d.id}>
-                  <div className="list-text">
-                    <strong>{d.path}</strong>
-                    <p className="muted">{d.message}</p>
-                  </div>
-                  {d.adoptable && (
-                    <Button
-                      kind="secondary"
-                      onClick={() =>
-                        void call("adopt", { id: d.id, revision: d.revision })
-                          .then(() => {
-                            void load();
-                            notice("Task note adopted");
-                          })
-                          .catch((e) => notice(errorMessage(e)))
-                      }
-                    >
-                      Adopt note
-                    </Button>
-                  )}
-                </div>
-              ))}
-              <Button kind="secondary" icon="refresh" onClick={() => void load()}>
-                Rescan vault
-              </Button>
-            </>
-          )}
-          {view === "import" && (
-            <ImportPage
-              onImported={() => {
-                void load();
-                go("tasks");
-                notice("Task notes imported");
-              }}
-            />
-          )}
           {view === "history" && (
             <>
               <Field label="Task">
@@ -907,7 +899,7 @@ export default function App() {
               ))}
               {historyTask && !versions.length && (
                 <Empty title="No earlier versions yet.">
-                  Todo keeps the previous note before each successful edit.
+                  Todo keeps the previous version before each successful edit.
                 </Empty>
               )}
             </>
@@ -915,36 +907,27 @@ export default function App() {
         </div>
       </main>
       <nav className="mobile-nav" aria-label="Main navigation">
-        {(
-          [
-            ["tasks", "Tasks", "list-check"],
-            ["done", "Done", "circle-check"],
-          ] as const
-        ).map(([v, label, icon]) => (
-          <button
-            key={v}
-            aria-current={view === v && !more ? "page" : undefined}
-            onClick={() => go(v)}
-          >
-            <Icon name={icon} size={18} />
-            {label}
-          </button>
-        ))}
-        <button onClick={() => setFind(true)}>
-          <Icon name="search" size={18} />
-          Search
+        <button aria-current={view === "today" ? "page" : undefined} onClick={() => go("today")}>
+          <Icon name="sun" size={19} /> Today
         </button>
+        <button aria-current={view === "upcoming" ? "page" : undefined} onClick={() => go("upcoming")}>
+          <Icon name="calendar-week" size={19} /> Upcoming
+        </button>
+        <button onClick={() => setFind(true)}><Icon name="search" size={19} /> Search</button>
         <button
-          aria-current={more || !["tasks", "done"].includes(view) ? "page" : undefined}
           aria-expanded={more}
+          aria-current={!["today", "upcoming"].includes(view) ? "page" : undefined}
           onClick={() => setMore(!more)}
         >
-          <Icon name="menu" size={18} />
-          More
+          <Icon name="dots" size={19} /> More
         </button>
       </nav>
       {more && (
         <Modal title="More" className="mobile-sheet" onClose={() => setMore(false)}>
+          <nav className="nav-group" aria-label="Task views">
+            {navButton("tasks", "All tasks", "list-check")}
+            {navButton("done", "Done", "circle-check")}
+          </nav>
           {projectHeading}
           <nav className="nav-group mobile-projects" aria-label="Projects">{projectLinks}</nav>
           <hr />
@@ -965,7 +948,7 @@ export default function App() {
               onClick={() => {
                 const undo = toast.undo!;
                 setToast(null);
-                void undo().catch((e) => notice(errorMessage(e)));
+                void runUndo(undo);
               }}
             >
               Undo
@@ -985,15 +968,19 @@ export default function App() {
           >
             Copy name
           </MenuItem>
-          <MenuItem
-            icon="obsidian"
-            onSelect={() => {
-              openObsidian(rowMenu.task.path);
-              setRowMenu(null);
-            }}
-          >
-            Open in Obsidian
-          </MenuItem>
+          {active(rowMenu.task) && (
+            <MenuItem
+              icon="calendar-week"
+              onSelect={() => {
+                const task = rowMenu.task;
+                openTask(task);
+                if (openId === task.id && cardActions.current) cardActions.current.openMenu("date");
+                else setMenuFor({ id: task.id, kind: "date" });
+              }}
+            >
+              Change plan date
+            </MenuItem>
+          )}
           <MenuItem
             icon="history"
             onSelect={() => {
@@ -1033,15 +1020,6 @@ export default function App() {
       {projectMenu?.kind === "project" && project && (
         <Popover anchor={projectMenu.anchor} onClose={() => setProjectMenu(null)} label="Project actions" width={220}>
           <MenuItem
-            icon="obsidian"
-            onSelect={() => {
-              openObsidian(project.path);
-              setProjectMenu(null);
-            }}
-          >
-            Open in Obsidian
-          </MenuItem>
-          <MenuItem
             icon="archive"
             onSelect={() => {
               setArchive(project);
@@ -1055,8 +1033,7 @@ export default function App() {
       {archive && (
         <Modal title={`Archive ${archive.title}?`} onClose={() => setArchive(null)}>
           <p>
-            The project leaves the sidebar. Its tasks and notes stay in the vault, and
-            open tasks still show in Tasks.
+            The project leaves the sidebar. Its open tasks still appear in All tasks.
           </p>
           <div className="modal-actions">
             <Button
@@ -1116,15 +1093,11 @@ export default function App() {
   );
 }
 
-function WorkspaceHeading({ children }: { children: React.ReactNode }) {
-  return (
-    <header className="workspace-heading">
-      <div className="workspace-banner">
-        <div className="workspace-title">{children}</div>
-        <div className="workspace-print" aria-hidden="true" />
-      </div>
-    </header>
-  );
+function WorkspaceHeading({ children, headingRef }: {
+  children: React.ReactNode;
+  headingRef: React.RefObject<HTMLElement | null>;
+}) {
+  return <header className="workspace-heading" ref={headingRef} tabIndex={-1}>{children}</header>;
 }
 
 function ProjectHeader({

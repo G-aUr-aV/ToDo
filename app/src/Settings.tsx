@@ -1,12 +1,10 @@
-import { readStored, writeStored } from "./storage";
 import type { Appearance } from "./appearance";
 import { useEffect, useId, useRef, useState, type ReactNode } from "react";
 
 import type { Snapshot, Preferences } from "../core/model";
-import type { ImportItem, ImportPreview } from "../core/vault";
 import { call } from "./client";
 import { NotificationPreference } from "./Reminders";
-import { Banner, Button, Empty, Field, Icon, Modal, copyText, download, errorMessage } from "./components";
+import { Banner, Button, Field, Icon, Modal, copyText, download, errorMessage } from "./components";
 type TokenInfo = { id: string; name: string; createdAt: string; lastUsedAt: string | null };
 type Created = { token: string; info: TokenInfo; endpoint: string };
 
@@ -16,7 +14,6 @@ const sections = [
   ["issue-links", "Issue links", "link"],
   ["reminders", "Reminders", "bell"],
   ["agents", "Agent access", "key"],
-  ["vault", "Vault & Obsidian", "obsidian"],
   ["data", "Data", "archive"],
   ["account", "Account", "lock"],
 ] as const;
@@ -181,14 +178,13 @@ export function Settings({
   setAppearance: (a: Appearance) => void;
   onSaved: () => void;
   onNotice: (m: string) => void;
-  onNavigate: (v: "import" | "diagnostics" | "archived") => void;
+  onNavigate: (v: "archived") => void;
   onHistory: (id: string) => Promise<void>;
   onLogout: () => void;
 }) {
   const [preferences, setPreferences] = useState<Preferences>(s.preferences);
   const [prefError, setPrefError] = useState("");
   const dirty = useRef(false);
-  const [obsidian, setObsidian] = useState(() => readStored("todo:obsidian:" + s.vaultKey) ?? "");
   const [password, setPassword] = useState(false);
   const [busy, setBusy] = useState(false);
   const [tokens, setTokens] = useState<TokenInfo[]>([]);
@@ -258,21 +254,6 @@ export function Settings({
       onNotice("Agent disconnected");
     } catch (e) {
       onNotice(errorMessage(e));
-    }
-  }
-  async function exportMarkdown() {
-    setBusy(true);
-    try {
-      const files = await call<Record<string, string>>("exportNotes");
-      const { default: JSZip } = await import("jszip");
-      const zip = new JSZip();
-      for (const [name, text] of Object.entries(files)) zip.file(name, text);
-      download("Todo-task-notes.zip", await zip.generateAsync({ type: "blob" }));
-      onNotice("Task notes exported");
-    } catch (e) {
-      onNotice(errorMessage(e));
-    } finally {
-      setBusy(false);
     }
   }
   const navigation = useRef<HTMLElement>(null);
@@ -387,7 +368,7 @@ export function Settings({
               label="Open on"
               value={preferences.startPage}
               options={[
-                ["tasks", "Tasks"],
+                ["tasks", "Today"],
                 ["done", "Done"],
               ]}
               onChange={(v) => edit({ startPage: v as Preferences["startPage"] })}
@@ -510,53 +491,44 @@ export function Settings({
             </div>
           ))}
         </Section>
-        <Section id="vault" title="Vault &amp; Obsidian">
-          <Row label="Vault" hint="Task notes live in this folder on the server.">
-            <span className="read-value">{s.vaultName}</span>
-          </Row>
-          <Row label="Obsidian on this device" hint="The vault's name in this device's Obsidian.">
-            <input
-              aria-label="Obsidian vault name"
-              placeholder="Registered vault name"
-              value={obsidian}
-              onChange={(e) => setObsidian(e.target.value)}
-              onBlur={() => {
-                writeStored("todo:obsidian:" + s.vaultKey, obsidian.trim());
-              }}
-            />
-          </Row>
-          <Row label="Vault status" hint="Notes Todo can't read, duplicates and notes to adopt.">
-            <Button kind="secondary" onClick={() => onNavigate("diagnostics")}>
-              Review
-            </Button>
-          </Row>
-        </Section>
         <Section id="data" title="Data">
-          <Row label="Import task notes" hint="Preview before anything is added.">
-            <Button kind="secondary" icon="upload" onClick={() => onNavigate("import")}>
-              Choose files
+          {s.storage === "sqlite" && (
+            <>
+              <Row label="Database snapshot" hint="Includes tasks, projects, preferences and history. Keep the download somewhere private.">
+                <a href="/api/backup" className="button secondary" download>
+                  <Icon name="download" /> Download database
+                </a>
+              </Row>
+              <Row label="Back up and restore" hint="Run these from the Todo checkout with the server state directory. The full backup includes private sign-in and agent credentials.">
+                <details className="backup-steps">
+                  <summary>Backup and restore commands</summary>
+                  <ol>
+                    <li>Stop the Todo server before making a full backup.</li>
+                    <li><code>npm run backup -- --state &lt;state-dir&gt; --backup &lt;new-backup-dir&gt;</code></li>
+                    <li><code>npm run restore -- --backup &lt;backup-dir&gt; --state &lt;new-state-dir&gt;</code></li>
+                    <li>Start Todo with the restored directory as its state directory.</li>
+                  </ol>
+                  <p>To restore a database download into a fresh workspace, use:</p>
+                  <p><code>npm run restore -- --database &lt;snapshot-file&gt; --state &lt;new-state-dir&gt;</code></p>
+                </details>
+              </Row>
+            </>
+          )}
+          <Row label="Export tasks and projects">
+            <Button
+              kind="secondary"
+              onClick={() =>
+                download(
+                  "Todo-tasks.json",
+                  JSON.stringify({ schemaVersion: 1, tasks: s.tasks, projects: s.projects }, null, 2),
+                  "application/json",
+                )
+              }
+            >
+              Download JSON
             </Button>
           </Row>
-          <Row label="Export" hint="Doesn't replace a full backup of the vault and state folders.">
-            <span className="button-pair">
-              <Button kind="secondary" icon="download" disabled={busy} onClick={() => void exportMarkdown()}>
-                Markdown
-              </Button>
-              <Button
-                kind="secondary"
-                onClick={() =>
-                  download(
-                    "Todo-tasks.json",
-                    JSON.stringify({ schemaVersion: 1, tasks: s.tasks, projects: s.projects }, null, 2),
-                    "application/json",
-                  )
-                }
-              >
-                JSON
-              </Button>
-            </span>
-          </Row>
-          <Row label="Earlier versions" hint="Todo keeps the previous note before each edit.">
+          <Row label="Earlier versions" hint="Todo keeps the previous version before each edit.">
             <select
               aria-label="Choose a task to see earlier versions"
               value=""
@@ -667,101 +639,5 @@ function PasswordDialog({ onClose, onSaved }: { onClose: () => void; onSaved: ()
         </div>
       </form>
     </Modal>
-  );
-}
-export function ImportPage({ onImported }: { onImported: () => void }) {
-  const [items, setItems] = useState<ImportItem[]>([]);
-  const [preview, setPreview] = useState<ImportPreview[]>([]);
-  const [error, setError] = useState("");
-  const [busy, setBusy] = useState(false);
-  async function read(files: FileList | null) {
-    if (!files) return;
-    setBusy(true);
-    setError("");
-    try {
-      if (files.length > 50 || [...files].reduce((n, f) => n + f.size, 0) > 2_000_000)
-        throw new Error("Choose up to 50 Markdown notes, totaling no more than 2 MB.");
-      const values = await Promise.all(
-        [...files].map(async (file) => ({ name: file.name, raw: await file.text() })),
-      );
-      const result = await call<ImportPreview[]>("previewImport", { items: values });
-      setItems(values);
-      setPreview(result);
-    } catch (e) {
-      setError(errorMessage(e));
-    } finally {
-      setBusy(false);
-    }
-  }
-  const valid = preview.filter((p) => p.valid).length;
-  return (
-    <div className="import-page">
-      <Field label="Task Markdown notes">
-        <input
-          type="file"
-          accept=".md,text/markdown,text/plain"
-          multiple
-          onChange={(e) => void read(e.target.files)}
-        />
-      </Field>
-      <p className="muted">
-        Notes need the task properties from the vault template. Imported files receive stable
-        identities when needed; your original files are kept.
-      </p>
-      {error && (
-        <Banner title="Could not import" kind="danger">
-          {error}
-        </Banner>
-      )}
-      {preview.length > 0 && (
-        <>
-          <Banner title={`Review ${preview.length} notes`}>
-            {valid} ready. {preview.length - valid} will be skipped. Nothing is imported until you
-            confirm.
-          </Banner>
-          {preview.map((p, i) => (
-            <label className="list-row" key={i}>
-              <input
-                type="checkbox"
-                aria-label={"Import " + p.title}
-                checked={p.valid}
-                disabled={busy || (!p.valid && p.message !== "Ready — task note")}
-                onChange={() =>
-                  setPreview((old) => old.map((v, n) => (n === i ? { ...v, valid: !v.valid } : v)))
-                }
-              />
-              <span className="list-text">
-                <strong>{p.title}</strong>
-                <span className={p.valid ? "muted" : "warning-text"}>{p.message}</span>
-              </span>
-            </label>
-          ))}
-          <Button
-            disabled={!valid || busy}
-            onClick={() => {
-              setBusy(true);
-              void call("importNotes", { items: items.filter((_, i) => preview[i].valid) })
-                .then((result) => {
-                  const r = result as { skipped: ImportPreview[] };
-                  if (r.skipped.length) {
-                    setError("Some notes changed or became duplicates. Review the preview again.");
-                    return;
-                  }
-                  onImported();
-                })
-                .catch((e) => setError(errorMessage(e)))
-                .finally(() => setBusy(false));
-            }}
-          >
-            Import {valid} selected notes
-          </Button>
-        </>
-      )}
-      {!preview.length && (
-        <Empty title="Bring task notes into Todo.">
-          Choose Markdown task notes to review their titles and identities before importing.
-        </Empty>
-      )}
-    </div>
   );
 }

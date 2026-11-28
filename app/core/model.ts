@@ -162,6 +162,7 @@ export type Snapshot = {
   preferences: Preferences;
   vaultName: string;
   vaultKey: string;
+  storage?: "sqlite";
   now: string;
   today: string;
   version: string;

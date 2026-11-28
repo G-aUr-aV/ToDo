@@ -1,11 +1,11 @@
 ---
 name: todo-setup
-description: Set up and verify the Todo web server on Linux, macOS or Windows. Reuse existing vaults and account state and open the configured URL in a browser.
+description: Set up and verify the Todo web server on Linux, macOS or Windows. Reuse existing workspaces and account state and open the configured URL in a browser.
 ---
 
 # Set up Todo
 
-Todo runs in a browser with one Node/Fastify vault server. Reuse the existing server when it already owns the vault.
+Todo runs in a browser with one SQLite-backed Node/Fastify server. Reuse the existing server when it already owns the workspace.
 
 For installing these skills across projects or setting up another agent's global Todo routing, read [the agent setup guide](../../../docs/agent-skills.md). This is separate from installing the Todo application itself.
 
@@ -27,9 +27,9 @@ Use **Node 24.18 or newer in the Node 24 line** and npm on the server. On macOS/
 
 If the chosen origin's `/readyz` succeeds and `/` loads, reuse it. A healthy existing Docker deployment also counts; do not start Node against its vault. If the address is not reachable, identify the cause before starting a replacement. Inspect only relevant non-secret settings, service status and listen ports; never dump `.env`, owner state, browser cookies or `initial-login.txt` into chat or logs.
 
-For a fresh local install, use `npm start` from the source root. This installs locked dependencies, builds and starts the server, creating absent dedicated vault/private state. Preserve existing `.env`, notes, credentials and recovery state; never point tests at real tasks. Use the environment's supported persistent terminal/process mechanism and report its lifetime. Starting a terminal process does not configure login autostart. If Docker is requested and available, follow `docs/docker.md` and reuse existing mounts/state. Keep one server per vault.
+For a fresh local install, use `npm start` from the source root. This installs locked dependencies, builds and starts the server, creating a fresh SQLite database and private state when needed. Preserve existing `.env`, notes, credentials and recovery state; never point tests at real tasks. Use the environment's supported persistent terminal/process mechanism and report its lifetime. Starting a terminal process does not configure login autostart. If Docker is requested and available, follow `docs/docker.md` and reuse existing mounts/state. Keep one server per workspace.
 
-`VAULT_PATH`/`STATE_PATH` for Node are relative to `app/`; private state stays outside the vault. Set both `PORT` and `PUBLIC_ORIGIN` for a custom port. Keep the generated initial login private: tell the user the local file path and let them sign in/change it. Do not read the password aloud or paste it. Obsidian's Open folder as vault can use the dedicated Todo Vault; do not modify another vault to finish setup.
+`VAULT_PATH`/`STATE_PATH` for Node are relative to `app/`; private state stays outside the vault. Set both `PORT` and `PUBLIC_ORIGIN` for a custom port. Keep the generated initial login private: tell the user the local file path and let them sign in/change it. Do not read the password aloud or paste it. For an existing Markdown workspace use the dry run, cutover backup and explicit importer in docs/setup.md. Preserve the original source and private state.
 
 ## Verify
 

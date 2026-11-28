@@ -1,6 +1,6 @@
 // Inline stroke icons (24×24 grid) so they follow the text colour and theme.
 export const icons: Record<string, string> = {
-  daylight: '<path d="M3 15h18M6 19h12M6.5 12a5.5 5.5 0 0111 0M12 2v2M4.4 5.3l1.5 1.4M19.6 5.3l-1.5 1.4"/>',
+  notebook: '<rect x="4" y="3.5" width="16" height="17" rx="2"/><path d="M8 3.5v17M12 9h4"/>',
   check: '<path d="M5 12.5l4.5 4.5L19 7.5"/>',
   circle: '<circle cx="12" cy="12" r="8.5"/>',
   "circle-check":
@@ -26,8 +26,6 @@ export const icons: Record<string, string> = {
   note: '<path d="M6 4h9l4 4v12H6zM14 4v5h5M9 13h6M9 16.5h4"/>',
   "list-check":
     '<path d="M10 6h10M10 12h10M10 18h10M4 6l1 1 2-2M4 12l1 1 2-2M4 18l1 1 2-2"/>',
-  obsidian:
-    '<path d="M9 3l7 3 3 7-5 8-7-2-3-8z"/><path d="M9 3l1 9-5-1M10 12l4 9"/>',
   history: '<path d="M4 12a8 8 0 103-6.2M4 4v4h4M12 8v4l3 2"/>',
   restore: '<path d="M4 11h10a5 5 0 010 10h-3M4 11l5-5M4 11l5 5"/>',
   folder:

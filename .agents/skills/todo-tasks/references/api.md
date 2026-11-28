@@ -2,7 +2,7 @@
 
 Prefer the `todo` MCP tools. Todo serves them at `<PUBLIC_ORIGIN>/mcp` (Streamable HTTP, JSON responses) with an `Authorization: Bearer todo_pat_…` token the owner creates under **Settings → Agent access**. Settings shows the ready `claude mcp add` command. A password change revokes every token.
 
-Read the rest of this file only when MCP is unavailable and you write through a signed-in Todo browser tab. The UI uses these same routes. Do not construct a second `Vault` instance against live data.
+Read the rest of this file only when MCP is unavailable and you write through a signed-in Todo browser tab. The UI uses these same routes. Do not construct a second writer against live data.
 
 ## Connect without exposing secrets
 
@@ -67,7 +67,7 @@ Supported create/patch fields:
 | `reminder` | ISO timestamp with seconds and explicit `Z` or `±HH:MM`, or `null` |
 | `repeat` | `{ "frequency": "daily" | "weekly" | "monthly", "interval": 1..365 }`, or `null` |
 
-Creation additionally requires `requestId`; PATCH rejects it. Unknown fields are rejected. API names differ from stored YAML: use `projectId`, `notes`, `reminder` on the wire; YAML has `project`, the Markdown body, and `reminder_at`. Read completion from `completedAt`; let the engine maintain `completed_at`, rollover metadata and recurrence bookkeeping.
+Creation additionally requires `requestId`; PATCH rejects it. Unknown fields are rejected. Use `projectId`, `notes` and `reminder` on the wire. Read completion from `completedAt`; Todo maintains rollover metadata and recurrence links.
 
 To reopen, patch the desired pending status, usually the task's `previousStatus`; do not send `completedAt`. To trash/untrash, patch `trashed`. Read back the requested result by UUID, including related recurrence records and diagnostics where applicable.
 
@@ -78,7 +78,7 @@ To reopen, patch the desired pending status, usually the task's `previousStatus`
 - For exact Undo of a saved change, retain its `undoVersion`, obtain the task's current revision, then use `POST /api/tasks/:id/restore` with `{ "revision": "CURRENT_REVISION", "version": "UNDO_VERSION" }`. This route takes the revision in its JSON body, not just in `If-Match`.
 - For older recovery, fetch versions and choose the version requested by the owner. Do not select an arbitrary latest version or overwrite newer work to undo one field. Restore changes the whole note and can affect recurrence; read back the result.
 
-Use the UI's existing import flow for deliberate note imports and adoption. Do not import or regenerate a note to bypass a failed edit.
+Legacy vault import is an administrator migration operation. Use task and project APIs for ongoing changes.
 
 ## Failures and uncertain outcomes
 
@@ -90,7 +90,7 @@ Errors use `{ "error": { "status", "code", "message", "current"? } }`. Check the
 | `403 HOST_INVALID` / `ORIGIN_INVALID` | Use the configured origin and host |
 | `428 REVISION_REQUIRED` | Fetch the current task and include its revision |
 | `409 CONFLICT` | Preserve the intended change, fetch/review the current task; no automatic merge, blind retry or force overwrite |
-| Validation, duplicate ID, read-only/invalid note | Explain the concrete problem; do not guess an identity, coerce an unsupported repeat rule or rewrite the YAML |
+| Validation, duplicate ID, read-only/invalid note | Explain the concrete problem; do not guess an identity, coerce an unsupported repeat rule or rewrite storage directly |
 | Unavailable vault, writer lease or service | Keep useful read-only results; report the blocked write without creating/replacing a service |
 | Network failure after sending a mutation | Read back by UUID first; replay a create only with the same `requestId`. Reapply an update only after reviewing whether it already took effect and whether intervening changes matter |
 

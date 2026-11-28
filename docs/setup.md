@@ -1,6 +1,6 @@
 # Setup and everyday operation
 
-Todo needs one running server and a browser. Your dedicated Obsidian vault is the data source; private account settings and recovery copies are stored separately. Linux ARM64 is the platform exercised here. The browser app and source scripts support standard Node environments; other OS acceptance remains to be checked on those devices.
+Todo needs one running server and a browser. Todo stores your workspace in SQLite and keeps account credentials in the private state directory. Linux ARM64 is the platform exercised here. The browser app and source scripts support standard Node environments; other OS acceptance remains to be checked on those devices.
 
 ## Node setup
 
@@ -23,11 +23,9 @@ To update, change `.node-version` and run `install`; older copies in `.tools/` a
 
 The start command installs the locked dependencies when absent, builds absent/outdated output, then serves Todo in the same Node process. An internet connection is needed for the first dependency installation. `npm run setup` explicitly repeats the clean install and build.
 
-A fresh start creates the complete `Todo Vault/` scaffold: Tasks, Projects, Attachments, Templates, Obsidian configuration, a Home guide and Tasks.base. An existing empty Docker mount is also initialized. An existing vault is retained; its note files and custom setup are never replaced.
+A fresh start creates a SQLite workspace and private account state. A legacy vault requires an explicit import.
 
 Open http://localhost:4310. The generated initial login is written privately to `.todo-state/server/initial-login.txt` (0600 permissions) and its path is printed. Read the file locally, sign in, then set your own password in Settings → Account. The file is removed after the password changes. Your session stays signed in for a week from last use and survives server restarts.
-
-Open `Todo Vault/` in Obsidian. To let a local assistant review progress, give it read access to the vault. It can read Markdown without an API or AI provider connection. `Home.md` describes active/completed/trashed tasks, date fields, history and recurrence links.
 
 For personal task management from any project, install the portable `todo-tasks` skill and a short routing rule using the [Codex, Claude Code and Hermes setup guide](agent-skills.md). It also covers the separate `todo-setup` skill. A clone includes the skill sources; each machine supplies its own vault paths, global installation and agent permissions.
 
@@ -37,8 +35,8 @@ Copy `.env.example` to `.env` at the repository root and uncomment the settings 
 
 | Node setting | Default | Meaning |
 | --- | --- | --- |
-| `VAULT_PATH` | `../Todo Vault` | Vault path, relative to `app/` or absolute |
-| `STATE_PATH` | `../.todo-state/server` | Private account/recovery folder outside the vault |
+| `VAULT_PATH` | `../Todo Vault` | Legacy source location checked at startup, relative to `app/` or absolute |
+| `STATE_PATH` | `../.todo-state/server` | Persistent folder for the SQLite database and private account state, outside the legacy vault |
 | `HOST` | `127.0.0.1` | Address to listen on |
 | `PORT` | `4310` | Port from 1 to 65535 |
 | `PUBLIC_ORIGIN` | `http://localhost:4310` | Exact browser origin, with your configured port |
@@ -53,10 +51,48 @@ On Linux/macOS, run `./start-docker.sh`. This creates an absent `.env` containin
 
 Do not run the Node server and Docker server against the same vault simultaneously. To switch, stop the current server, retain both vault and state folders, then start the other one with those same paths.
 
-## Update and back up
+## Upgrade a Markdown vault
 
-Stop Todo before copying both the entire vault and `.todo-state/server/` to your backup destination. Protect the state backup as private data. Restore those two folders together. ZIP export contains indexed task/project notes only; it is not a complete vault backup.
+Use the Node runtime or the Docker procedure in the [Docker runbook](docker.md). Keep the old release and its configuration available. Build the new tools with `npm run build` from an installed checkout. Supply absolute paths to the existing vault and its matching private state.
 
-For source updates, stop the server, update the source, run `npm run setup`, then `npm start`. For Docker updates, run `./start-docker.sh` again. Neither operation deletes vault files, owner credentials or recoverable history.
+```sh
+npm run migrate -- --vault "/path/to/Todo Vault" --state "/path/to/private-state" --dry-run
+```
 
-Reminders require Todo open in a browser. Enable browser notifications in Settings if you want system alerts. A device asleep or a page suspended cannot deliver exactly on time; due reminders catch up on return. Unfinished-date rollover runs on the server and catches up after downtime even when no browser page is open.
+Review the report. Unresolved items prevent cutover. Optionally pass `--resolutions /path/to/resolutions.json` to specify which source files to archive or how to resolve project links. For example:
+
+```json
+{
+  "archive": ["vault/Tasks/unsupported-example.md"],
+  "projects": {"Tasks/ambiguous-example.md": "86b25702-c66d-4c38-99fa-bd293588a1a5"}
+}
+```
+
+Archived items remain in the full backup. For a missing project, an explicit `null` keeps the task with no project. Stop the old server and close editors that could write to the source. Choose a new, private backup directory outside both input directories. Run the import in the same path context as the old server to preserve browser draft identity.
+
+```sh
+npm run migrate -- --vault "/path/to/Todo Vault" --state "/path/to/private-state" --backup "/backups/todo-before-upgrade"
+```
+
+Keep the resulting archive. Start the new app with the matching state directory, sign in with the existing account, and check project counts, a completed task, a recurring task and version history. Verify an agent can read the same workspace.
+
+## Back up and restore
+
+Stop the writer for a complete backup, including sign-in and agent credentials. Use new, private directories for the destination.
+
+```sh
+npm run backup -- --state "/path/to/private-state" --backup "/backups/todo-current"
+npm run restore -- --backup "/backups/todo-current" --state "/path/to/restored-state"
+```
+
+Point the server at the restored state directory to verify it. Preserve the previous state until verification succeeds. **Settings → Data** also offers a database-only download. Restore it into a fresh state directory. Omit `--auth-state` for a new owner setup, or include the stopped installation’s private state to retain authentication.
+
+```sh
+npm run restore -- --database "/backups/todo.sqlite" --state "/path/to/fresh-state" --auth-state "/path/to/stopped-state"
+```
+
+Protect both kinds of backup as private data.
+
+Before the upgraded server accepts writes, rollback can use the old server with the archived vault and matching private state. After it accepts writes, save a complete SQLite backup and reconcile the newer changes before reverting. The frozen vault only contains data through the cutover.
+
+Reminders require an open browser tab. Rollover runs on the server and catches up after downtime.

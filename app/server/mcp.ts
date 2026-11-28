@@ -3,9 +3,10 @@
 // as the web app, so revisions, recovery versions and day lists stay intact.
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
-import type { Vault } from "../core/vault";
+import type { Workspace } from "../core/operations";
 import {
   AppError,
+  dayInZone,
   validDate,
   type Project,
   type Snapshot,
@@ -136,7 +137,7 @@ function resolveProject(
 // Re-read and retry once when the note changed between reading and writing,
 // e.g. the owner saved it in the web app. Only for writes that merge safely.
 async function withLatest<T>(
-  vault: Vault,
+  vault: Workspace,
   taskId: string,
   write: (task: Task, s: Snapshot) => Promise<T>,
 ) {
@@ -150,7 +151,7 @@ async function withLatest<T>(
     }
   }
 }
-async function taskResult(vault: Vault, task: Task) {
+async function taskResult(vault: Workspace, task: Task) {
   const s = await vault.snapshot();
   return { task: full(s, s.tasks.find((t) => t.id === task.id) ?? task) };
 }
@@ -161,7 +162,7 @@ type Tool = {
   inputSchema: object;
   readOnly?: boolean;
   args: z.ZodType;
-  run: (vault: Vault, args: any) => Promise<object>;
+  run: (vault: Workspace, args: any) => Promise<object>;
 };
 const str = (description: string, extra: object = {}) => ({ type: "string", description, ...extra });
 const nullableDate = (description: string) => ({
@@ -181,6 +182,7 @@ const tools: Tool[] = [
         query: str("Words to look for, e.g. 'login timeout'. Empty lists everything."),
         status: { type: "string", enum: ["open", "done", "all"], default: "open" },
         project: str("Project title or id to limit the search."),
+        day: str("Calendar date YYYY-MM-DD. Open tasks use their plan date, falling back to deadline. Done tasks use their local completion day."),
         limit: { type: "integer", minimum: 1, maximum: 50, default: 20 },
       },
     },
@@ -188,6 +190,7 @@ const tools: Tool[] = [
       query: z.string().max(500).default(""),
       status: z.enum(["open", "done", "all"]).default("open"),
       project: z.string().max(120).optional(),
+      day: z.string().refine(validDate, "Use a calendar date like 2026-11-28.").optional(),
       limit: z.number().int().min(1).max(50).default(20),
     }),
     async run(vault, a) {
@@ -203,6 +206,11 @@ const tools: Tool[] = [
               : !t.trashed,
         )
         .filter((t) => !projectId || t.projectId === projectId)
+        .filter((t) => !a.day || (
+          t.status === "done"
+            ? t.completedAt !== null && dayInZone(new Date(t.completedAt), s.preferences.timezone) === a.day
+            : (t.scheduled ?? t.due) === a.day
+        ))
         .map((t) => {
           const title = words(t.title).join(" ");
           const hay = `${title} ${words(t.notes).join(" ")} ${words(projectTitle(s, t) ?? "").join(" ")}`;
@@ -440,7 +448,7 @@ const rpcError = (id: unknown, code: number, message: string) => ({
 });
 
 /** Handles one JSON-RPC message. Returns null for notifications (HTTP 202). */
-export async function handleMcp(vault: Vault, body: unknown): Promise<object | null> {
+export async function handleMcp(vault: Workspace, body: unknown): Promise<object | null> {
   const msg = body as Message;
   if (!msg || typeof msg !== "object" || Array.isArray(msg) || msg.jsonrpc !== "2.0" || typeof msg.method !== "string")
     return rpcError(msg?.id, -32600, "Send one JSON-RPC 2.0 request.");

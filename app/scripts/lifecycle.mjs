@@ -79,13 +79,14 @@ export async function buildNeeded() {
   try {
     const outputs = await Promise.all([
       fs.stat(path.join(appDir, "dist/server/main.cjs")),
+      fs.stat(path.join(appDir, "dist/server/storage-cli.cjs")),
       fs.stat(path.join(appDir, "dist/client/index.html")),
     ]);
     built = Math.min(...outputs.map((s) => s.mtimeMs));
   } catch {
     return true;
   }
-  const sources = ["core", "server", "src", "public", "scripts/build-node.mjs", "package.json", "package-lock.json", "index.html", "vite.config.ts"];
+  const sources = ["core", "migration", "server", "src", "public", "scripts/build-node.mjs", "package.json", "package-lock.json", "index.html", "vite.config.ts"];
   const newer = async (file) => {
     const stat = await fs.stat(file);
     if (stat.mtimeMs > built) return true;

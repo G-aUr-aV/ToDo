@@ -1,7 +1,7 @@
 services:
   todo:
     build: .
-    image: todo-daylight:0.1.0
+    image: "${TODO_IMAGE:-todo-daylight:0.1.0}"
     user: "${TODO_UID:-1000}:${TODO_GID:-1000}"
     init: true
     ports:
@@ -16,6 +16,7 @@ services:
       - type: bind
         source: ${TODO_VAULT_PATH:-./Todo Vault}
         target: /vault
+        read_only: true
         bind:
           create_host_path: false
       - type: bind

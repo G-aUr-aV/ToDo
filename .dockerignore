@@ -7,3 +7,5 @@ app/out/
 app/.todo-state/
 app/.env*
 app/tests/
+app/**/*.sqlite
+app/**/*.sqlite-*

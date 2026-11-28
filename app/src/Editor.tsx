@@ -58,6 +58,7 @@ export function TaskEditor({
   onState,
   onClose,
   onComplete,
+  onReopen,
   onProjectCreated,
   leading,
   trailing,
@@ -71,6 +72,7 @@ export function TaskEditor({
   onState: (state: string) => void;
   onClose: () => void;
   onComplete: (task: Task) => void;
+  onReopen: (task: Task) => void;
   onProjectCreated: (project: Project) => void;
   leading: (complete: () => void) => ReactNode;
   trailing: ReactNode;
@@ -102,6 +104,7 @@ export function TaskEditor({
     null,
   );
   const [schedule, setSchedule] = useState(!!(task.reminder || task.repeat));
+  const [plannedAfterDeadline, setPlannedAfterDeadline] = useState<string>();
   const draftRef = useRef(draft);
   draftRef.current = draft;
   const revision = useRef(restored(key)?.revision ?? task.revision);
@@ -114,7 +117,7 @@ export function TaskEditor({
   const titleRef = useRef<HTMLTextAreaElement>(null);
   const projectChip = useRef<HTMLButtonElement>(null);
   const dateChip = useRef<HTMLButtonElement>(null);
-  // Obsidian-style notes start with a blank line; keep it out of the editor.
+  // Preserve the leading blank line in notes imported from the legacy workspace.
   const lead = useRef("");
   const callbacks = useRef({ onSaved, onState });
   callbacks.current = { onSaved, onState };
@@ -203,12 +206,11 @@ export function TaskEditor({
     await save(true);
     if (paused.current || JSON.stringify(draftRef.current) !== saved.current)
       return;
-    onComplete({ ...task, revision: revision.current });
+    const current = { ...task, ...draftRef.current, revision: revision.current };
+    (current.status === "done" ? onReopen : onComplete)(current);
   }
   function toggle() {
-    if (draftRef.current.status !== "done") return void finish();
-    change({ status: task.previousStatus });
-    void save(true);
+    void finish();
   }
   const openMenu = (kind: "project" | "date") => {
     const anchor = (kind === "project" ? projectChip : dateChip).current;
@@ -294,7 +296,7 @@ export function TaskEditor({
     if (mounted.current) {
       setStale(true);
       setError(
-        "This note changed in the vault. Your draft is kept here. Copy it if needed before discarding it and loading the latest note.",
+        "This task changed elsewhere. Copy your draft or discard it and load the latest version.",
       );
       setStatus("Changes not saved");
       callbacks.current.onState("Changes not saved");
@@ -495,6 +497,20 @@ export function TaskEditor({
             The planned date is after the deadline. Both dates are kept.
           </p>
         )}
+        {plannedAfterDeadline && (
+          <div className="move-warnings" role="status">
+            <p>
+              Planning for {dateLabel(plannedAfterDeadline, today)} places this task after its deadline.
+            </p>
+            <div className="button-pair">
+              <Button kind="secondary" onClick={() => {
+                change({ scheduled: plannedAfterDeadline, status: inboxReady() });
+                setPlannedAfterDeadline(undefined);
+              }}>Move task</Button>
+              <Button kind="ghost" onClick={() => setPlannedAfterDeadline(undefined)}>Cancel</Button>
+            </div>
+          </div>
+        )}
         <div
           className={"notes" + (editing ? " editing" : "")}
           onClick={(e) => {
@@ -591,10 +607,7 @@ export function TaskEditor({
             <Button
               kind="secondary"
               icon="refresh"
-              onClick={() => {
-                change({ status: task.previousStatus });
-                void save(true);
-              }}
+              onClick={() => void finish()}
             >
               Reopen
             </Button>
@@ -663,11 +676,16 @@ export function TaskEditor({
             weekStartsOn={weekStartsOn}
             kind={menu.kind === "date" ? "plan" : "deadline"}
             onPick={(value) => {
-              change(
-                menu.kind === "date"
-                  ? { scheduled: value, status: value ? inboxReady() : draft.status }
-                  : { due: value, status: value ? inboxReady() : draft.status },
-              );
+              if (menu.kind === "date" && value && draft.due && value > draft.due) {
+                setPlannedAfterDeadline(value);
+              } else {
+                setPlannedAfterDeadline(undefined);
+                change(
+                  menu.kind === "date"
+                    ? { scheduled: value, status: value ? inboxReady() : draft.status }
+                    : { due: value, status: value ? inboxReady() : draft.status },
+                );
+              }
               setMenu(null);
             }}
           />

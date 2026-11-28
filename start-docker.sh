@@ -1,5 +1,5 @@
 #!/bin/sh
-# First-run helper for Docker Compose. Existing notes, account state and .env are retained.
+# First-run helper for Docker Compose. Existing private state and .env are retained.
 set -eu
 workspace=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 cd "$workspace"
@@ -33,7 +33,20 @@ for folder in "$vault" "$state"; do
 done
 mkdir -p -- "$vault" "$state"
 chmod 700 "$state"
+if [ ! -f "$state/todo.sqlite" ]; then
+  if [ -n "$(ls -A -- "$vault")" ]; then
+    echo "An existing Markdown vault needs migration before Todo can start." >&2
+    echo "Run the migration dry run in the setup guide before replacing the running server." >&2
+    exit 1
+  fi
+  for name in owner.json initial-login.txt sessions.json tokens.json preferences.json versions todo.sqlite-wal todo.sqlite-shm todo.sqlite-journal; do
+    if [ -e "$state/$name" ] || [ -L "$state/$name" ]; then
+      echo "Existing Todo state has no todo.sqlite database. Check mounts, then restore a backup or migrate the original vault." >&2
+      exit 1
+    fi
+  done
+fi
 docker compose up -d --build
 echo "Todo started. Open ${public_origin:-http://localhost:$port}"
 echo "Read the generated owner login locally in: $state/initial-login.txt"
-echo "Open this folder as an Obsidian vault: $vault"
+echo "Todo stores tasks and history in: $state/todo.sqlite"

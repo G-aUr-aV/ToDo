@@ -1,25 +1,9 @@
-# Prototype Instructions
+# Todo application instructions
 
-Todo is a single-owner, self-hosted website used in a regular browser tab. Follow the task model in `docs/superpowers/specs/2026-11-21-todo-revamp-design.md`: one Tasks list, a Done log, notes one click away. The owner wants few clicks, so show a control only when it is needed and prefer inline editing to dialogs. Agents write only through the `/mcp` endpoint or the signed-in API. Reuse one vault engine and do not add another storage system or automatic offline writes.
+Todo is a single-owner browser planner served by Node and backed by SQLite. Follow the [Today upgrade plan](../docs/superpowers/plans/2026-11-27-todo-upgrade.md) and [desktop and phone mockups](../docs/superpowers/specs/2026-11-27-today-mockups.html). Agents use MCP or the signed-in API. Keep one writer and preserve revision checks, draft recovery and Undo.
 
-Lightweight operation is a primary requirement: minimize download size, idle memory, idle CPU and maintenance cost. Measure the complete runtime rather than only JavaScript entry sizes.
+Today is the primary view. Keep capture and inline notes within reach, reserve width for titles, and let crowded lists and project navigation scroll independently. Treat dark mode, reduced motion, large text, keyboard use and narrow phone layouts as primary surfaces. Prefer contextual actions and verify changes with a populated temporary workspace in a browser.
 
-Keep tasks as readable Obsidian Markdown so the owner and local assistants can inspect progress directly. Automatic rollover must update unfinished planned dates in the vault, keep deadlines fixed and retain readable history. Provide simple reminders with snooze/dismiss and a clear open-page delivery requirement. Prefer bounded daily/weekly/monthly repeat rules and useful completion history over extra services, accounts or collaboration features. Verify both fresh setup and representative populated vaults using temporary invented data.
+Store tasks, projects, history and planning preferences in the local database. Preserve independent plan dates and deadlines, timezone-aware rollover, bounded repeats, reminders with snooze/dismiss while the page is open, and recoverable history. The legacy vault is migration input. Test migration, fresh setup and restore using invented data. Protect live data, credentials, services and backups.
 
-The owner wants date-named day lists with links to actual task files: open tasks use normal links, completed tasks use strikethrough, and unfinished tasks moved to another day disappear from the old list. Keep these lists generated from authoritative task notes using the existing vault engine. Agents should read `Days/YYYY-MM-DD.md` for a day's work before opening individual task notes. No compatibility migration for the previous vault format is required.
-
-The owner does not want a conflict-resolution/merge workflow for this personal app. Keep the rare stale-edit case simple: pause saving, retain the draft, and offer Copy or an explicit discard-and-reload action. Keep revision checks and recovery/Undo so Obsidian edits are not silently overwritten. Do not reintroduce side-by-side comparisons, merge editors or reviewed-merge dialogs.
-
-Run the local server yourself and open the preview in the browser available to this environment. Do not give the user server-start instructions when you can run it.
-
-Before making substantial visual changes, use the Product Design plugin's `get-context` skill when the visual source is unclear or no longer matches the current goal. When the user gives durable prototype-specific design feedback, preferences, or decisions, record them in `AGENTS.md`.
-
-Keep the main task workspace compact, including when there are few or no tasks. Use available width for task titles and existing controls, and keep empty states close to the list and composer.
-Prioritize full-screen laptop use. When My tasks has room for two columns, scroll the To do rows independently of the composer, Upcoming, and Recently completed. Keep the list and inline editor usable in smaller windows.
-Treat dark mode as a primary design and verification surface. Check contrast and surface separation in lists, editors, dialogs, Trash, and Settings. Keep the compact scenic workspace header and its controls fixed across views. Scroll the content below it independently, keep the active Settings section visible, and let long sidebar project lists scroll above the fixed navigation footer. Keep Search and Shortcuts lightly translucent and usable by keyboard.
-
-When implementing from a selected generated mock, treat that image as the source of truth for layout, component anatomy, density, spacing, color, typography, visible content, and hierarchy.
-
-Build app UI in `src/`. Keep `.openai/hosting.json`, `worker/index.js`, `scripts/prepare-sites-build.mjs`, and `tests/sites-worker.test.mjs` intact so the same local prototype can be handed to Sites. Before a Sites handoff, run `npm run build` and `npm run test:sites`; the build must leave `dist/client/index.html`, `dist/server/index.js`, and `dist/.openai/hosting.json`.
-
-For the main planner, the owner wants a modern, distinctive workspace that feels enjoyable in daily use. Layout and color can change when they improve the experience.
+Keep the client lightweight and use existing platform APIs. Build React UI in src/. Keep the Sites adapter, hosting configuration and packaging checks working for static preview. Full planner operation requires the local Node server.
