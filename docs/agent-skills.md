@@ -8,8 +8,9 @@ Read this from a cloned Todo repository when asked to enable its skills on a mac
 | --- | --- |
 | `.agents/skills/todo-tasks/` | Read, add, plan, update, complete and carry out personal tasks using the live Todo workspace |
 | `.agents/skills/todo-setup/` | Set up or repair the Todo web server |
+| `.agents/skills/github-repo-sanity/` | Audit GitHub settings, community files, CI and security alerts in a named repository |
 
-Each folder contains a standard `SKILL.md`; keep its accompanying references and assets together. `agents/openai.yaml` is optional Codex UI metadata; other agents can use the Markdown without it. Repository `AGENTS.md` points to both skills, and `CLAUDE.md` imports those shared instructions for Claude Code. An agent without skill discovery can read the relevant `SKILL.md` directly.
+Each folder contains a standard `SKILL.md`; keep its accompanying references and assets together. `agents/openai.yaml` is optional Codex UI metadata; other agents can use the Markdown without it. Repository `AGENTS.md` points to the Todo task and setup skills, and `CLAUDE.md` imports those shared instructions for Claude Code. An agent without skill discovery can read the relevant `SKILL.md` directly.
 
 Cloning supplies the sources, not another machine's global instructions, vault, login or filesystem permissions. Install only for the agent/profile the owner requested. An instruction to read this guide is not by itself a request to modify every installed agent.
 

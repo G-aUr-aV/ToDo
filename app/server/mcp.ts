@@ -1,5 +1,5 @@
 // A small, stateless MCP server (Streamable HTTP, JSON responses) so agents can
-// find, update and close tasks. Every write goes through the same Vault engine
+// find, update and close tasks. Every write goes through the same workspace
 // as the web app, so revisions, recovery versions and day lists stay intact.
 import { randomUUID } from "node:crypto";
 import { z } from "zod";

@@ -1,7 +1,7 @@
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { constants, createReadStream } from "node:fs";
+import { createReadStream } from "node:fs";
 import Fastify from "fastify";
 import cookie from "@fastify/cookie";
 import rateLimit from "@fastify/rate-limit";
@@ -180,8 +180,6 @@ export async function createServer({
     return { ok: true };
   });
   for (const operation of operations) {
-    if (operation === "bulkSchedule" && !("bulkSchedule" in vault)) continue;
-    if (["adopt", "previewImport", "importNotes", "exportNotes"].includes(operation) && !("adopt" in vault)) continue;
     const route = routeFor[operation];
     app.route({
       method: route.method,
@@ -203,40 +201,38 @@ export async function createServer({
             revision: revision.replace(/^"|"$/g, ""),
             patch: req.body,
           };
-        } else if (["restore", "adopt"].includes(operation)) {
+        } else if (operation === "restore") {
           payload = { ...(req.body as object), id: params.id };
         }
         return operate(vault, operation, payload);
       },
     });
   }
-  if ("backupTo" in vault) {
-    app.get("/api/backup", async (request, reply) => {
-      const directory = await fs.mkdtemp(path.join(os.tmpdir(), "todo-backup-"));
-      const file = path.join(directory, "todo.sqlite");
-      const remove = () => fs.rm(directory, { force: true, recursive: true }).catch(() => undefined);
-      try {
-        await vault.backupTo(file);
-        const { size } = await fs.stat(file);
-        if (request.raw.aborted || reply.raw.destroyed) {
-          await remove();
-          return;
-        }
-        const stream = createReadStream(file);
-        stream.once("close", () => void remove());
-        reply.raw.once("close", () => stream.destroy());
-        const day = new Date().toISOString().slice(0, 10);
-        return reply
-          .type("application/octet-stream")
-          .header("Content-Disposition", `attachment; filename="todo-${day}.sqlite"`)
-          .header("Content-Length", size)
-          .send(stream);
-      } catch (error) {
+  app.get("/api/backup", async (request, reply) => {
+    const directory = await fs.mkdtemp(path.join(os.tmpdir(), "todo-backup-"));
+    const file = path.join(directory, "todo.sqlite");
+    const remove = () => fs.rm(directory, { force: true, recursive: true }).catch(() => undefined);
+    try {
+      await vault.backupTo(file);
+      const { size } = await fs.stat(file);
+      if (request.raw.aborted || reply.raw.destroyed) {
         await remove();
-        throw error;
+        return;
       }
-    });
-  }
+      const stream = createReadStream(file);
+      stream.once("close", () => void remove());
+      reply.raw.once("close", () => stream.destroy());
+      const day = new Date().toISOString().slice(0, 10);
+      return reply
+        .type("application/octet-stream")
+        .header("Content-Disposition", `attachment; filename="todo-${day}.sqlite"`)
+        .header("Content-Length", size)
+        .send(stream);
+    } catch (error) {
+      await remove();
+      throw error;
+    }
+  });
   app.post(
     "/mcp",
     { config: { rateLimit: { max: 120, timeWindow: "1 minute" } } },
@@ -295,16 +291,7 @@ export async function createServer({
   app.get("/healthz", async () => ({ status: "ok" }));
   app.get("/readyz", async (_req, reply) => {
     try {
-      if ("ready" in vault) {
-        await vault.ready();
-        return { ready: true };
-      }
-      await vault.snapshot();
-      // Recheck access after startup: mounts can become read-only while the process stays alive.
-      await Promise.all([
-        fs.access(path.join(vault.root, "Tasks"), constants.R_OK | constants.W_OK | constants.X_OK),
-        fs.access(vault.state, constants.R_OK | constants.W_OK | constants.X_OK),
-      ]);
+      await vault.ready();
       return { ready: true };
     } catch {
       reply.code(503);

@@ -106,8 +106,6 @@ export async function call<T = unknown>(
       "snapshot",
       "today",
       "versions",
-      "exportNotes",
-      "previewImport",
       "listTokens",
       "createToken",
       "revokeToken",

@@ -1,8 +1,7 @@
 import { z } from "zod";
-import type { Vault } from "./vault";
 import type { SqliteWorkspace } from "./sqlite-workspace";
 import { AppError, uuid, validDate } from "./model";
-export type Workspace = Vault | SqliteWorkspace;
+export type Workspace = SqliteWorkspace;
 const revision = z.string().regex(/^[a-f0-9]{64}$/);
 const edit = z.object({ id: uuid, revision, patch: z.unknown() }).strict();
 const bulkSchedule = z.object({
@@ -12,22 +11,6 @@ const bulkSchedule = z.object({
   ({ tasks }) => new Set(tasks.map(({ id }) => id)).size === tasks.length,
   "Select each task only once.",
 );
-export const importSchema = z
-  .object({
-    items: z
-      .array(
-        z
-          .object({ name: z.string().max(240), raw: z.string().max(600_000) })
-          .strict(),
-      )
-      .max(50),
-  })
-  .strict()
-  .refine(
-    (v) =>
-      v.items.reduce((n, i) => n + Buffer.byteLength(i.raw), 0) <= 2_000_000,
-    "Import at most 2 MB at a time.",
-  );
 export const operations = [
   "snapshot",
   "createTask",
@@ -38,10 +21,6 @@ export const operations = [
   "setPreferences",
   "versions",
   "restore",
-  "adopt",
-  "previewImport",
-  "importNotes",
-  "exportNotes",
 ] as const;
 export type Operation = (typeof operations)[number];
 export async function operate(
@@ -65,8 +44,7 @@ export async function operate(
       return vault.updateTask(p.id, p.revision, p.patch);
     }
     case "bulkSchedule":
-      if ("bulkSchedule" in vault) return vault.bulkSchedule(bulkSchedule.parse(payload));
-      break;
+      return vault.bulkSchedule(bulkSchedule.parse(payload));
     case "createProject":
       return vault.createProject(payload);
     case "updateProject": {
@@ -86,25 +64,7 @@ export async function operate(
         .parse(payload);
       return vault.restore(p.id, p.revision, p.version);
     }
-    case "adopt": {
-      const p = z
-        .object({ id: z.string().regex(/^[a-f0-9]{64}$/), revision })
-        .strict()
-        .parse(payload);
-      if ("adopt" in vault) return vault.adopt(p.id, p.revision);
-      break;
-    }
-    case "previewImport":
-      if ("previewImport" in vault) return vault.previewImport(importSchema.parse(payload).items);
-      break;
-    case "importNotes":
-      if ("importNotes" in vault) return vault.importNotes(importSchema.parse(payload).items);
-      break;
-    case "exportNotes":
-      if ("exportNotes" in vault) return vault.exportNotes();
-      break;
   }
-  throw new AppError(404, "NOT_FOUND", "This action is unavailable.");
 }
 export function errorData(error: unknown) {
   if (error instanceof AppError)

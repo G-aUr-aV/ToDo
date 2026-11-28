@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { Vault, createVault } from "../core/vault";
+import { SqliteWorkspace } from "../core/sqlite-workspace";
 import { Auth } from "../server/auth";
 import { createServer } from "../server/app";
 import { addProgress, progressStamp } from "../server/mcp";
@@ -12,8 +12,7 @@ async function fixture(t: test.TestContext) {
   const dir = await fs.mkdtemp(
     path.join(await fs.realpath(os.tmpdir()), "todo-mcp-test-"),
   );
-  const root = await createVault(path.join(dir, "Vault"));
-  const vault = await new Vault(root, path.join(dir, "state")).start();
+  const vault = new SqliteWorkspace(path.join(dir, "todo.sqlite")).start();
   const auth = new Auth(path.join(dir, "state"));
   await auth.initialize();
   const app = await createServer({
@@ -52,7 +51,7 @@ async function fixture(t: test.TestContext) {
       data: result.structuredContent as any,
     };
   };
-  return { app, vault, root, headers, rpc, tool };
+  return { app, vault, headers, rpc, tool };
 }
 
 test("MCP handshake and tool list", async (t) => {

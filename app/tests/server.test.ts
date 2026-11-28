@@ -4,13 +4,12 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
-import { Vault, createVault } from "../core/vault";
+import { SqliteWorkspace } from "../core/sqlite-workspace";
 import { Auth } from "../server/auth";
 import { createServer } from "../server/app";
 async function fixture(t: test.TestContext, withClient = false) {
   const dir = await fs.mkdtemp(path.join(await fs.realpath(os.tmpdir()), "todo-http-test-"));
-  const root = await createVault(path.join(dir, "Vault"));
-  const vault = await new Vault(root, path.join(dir, "state")).start();
+  const vault = new SqliteWorkspace(path.join(dir, "todo.sqlite")).start();
   const auth = new Auth(path.join(dir, "state"));
   const loginFile = (await auth.initialize())!;
   const password = (await fs.readFile(loginFile, "utf8"))
@@ -61,7 +60,7 @@ async function fixture(t: test.TestContext, withClient = false) {
     dir,
   };
 }
-test("authentication protects vault data and uses HttpOnly SameSite session cookies", async (t) => {
+test("authentication protects workspace data and uses HttpOnly SameSite session cookies", async (t) => {
   const f = await fixture(t);
   const unauth = await f.app.inject({
     url: "/api/workspace",
@@ -202,7 +201,7 @@ test("project creation and renaming reserve the same names across HTTP and MCP",
   const proposedName = "  CAFE\u0301\tOPS  ";
   const rename = await edit(other.json(), { title: proposedName });
   assert.equal(rename.statusCode, 409);
-  const expected = { status: 409, code: "PROJECT_EXISTS", message: 'A project named "Café  Ops" already exists.' };
+  const expected = { status: 409, code: "PROJECT_EXISTS", message: "A project with this name already exists." };
   assert.deepEqual(rename.json().error, expected);
   const duplicate = await create(proposedName);
   assert.equal(duplicate.statusCode, 409);
@@ -282,7 +281,7 @@ test("changing a password invalidates other sessions and removes the initial cle
   const fresh = await f.auth.login("owner", "A temporary test password 123");
   assert.ok(fresh.csrf);
 });
-test("health and readiness report process and vault state", async (t) => {
+test("health and readiness report process and workspace state", async (t) => {
   const f = await fixture(t);
   const h = await f.app.inject({
     url: "/healthz",
@@ -333,14 +332,14 @@ test("repeated failed logins are throttled", async (t) => {
 
 test("readiness becomes unavailable when task storage loses write access", async (t) => {
   const f = await fixture(t);
-  const directory = path.join(f.vault.root, "Tasks");
-  await fs.chmod(directory, 0o500);
-  t.after(() => fs.chmod(directory, 0o700).catch(() => {}));
+  const database = path.join(f.dir, "todo.sqlite");
+  await fs.chmod(database, 0o400);
+  t.after(() => fs.chmod(database, 0o600).catch(() => {}));
   const result = await f.app.inject({ url: "/readyz", headers: f.headers });
   assert.equal(result.statusCode, 503);
   assert.equal(result.json().ready, false);
   assert.equal((await f.app.inject({ url: "/healthz", headers: f.headers })).statusCode, 200);
-  await fs.chmod(directory, 0o700);
+  await fs.chmod(database, 0o600);
 });
 test("sign-in lasts a week and agent tokens are managed by the signed-in owner", async (t) => {
   const f = await fixture(t);
